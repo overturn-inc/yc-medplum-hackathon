@@ -73,6 +73,8 @@ export class AgentChatService {
       throw Object.assign(new Error("message is required"), { status: 400 });
     }
 
+    // Intent + pre-action policy only. Final content/citations are rendered
+    // later from the durable episode inside the chat mutation lock.
     const answer = await this.resolveAnswer(episode, text, input.clientRequestId);
 
     if (
@@ -87,6 +89,36 @@ export class AgentChatService {
       );
     }
 
+    let proposalCreated = false;
+    let proposalId: string | undefined;
+    let actionOutcomeSuffix = "";
+
+    // Keep ActionService outside the chat mutation lock to avoid nested locks.
+    // Capture only outcome suffix / proposal id — never stale rendered content.
+    if (answer.intent === "request_action" && answer.executeReadOnlyRefresh) {
+      try {
+        const result = await this.actions.refreshPayerStatus(episode.id);
+        actionOutcomeSuffix = ` ${result.message}`;
+      } catch (error) {
+        actionOutcomeSuffix = ` (Could not refresh payer status: ${
+          error instanceof Error ? error.message : "unknown error"
+        }.)`;
+      }
+    } else if (answer.intent === "request_action" && answer.suggestedActionType) {
+      try {
+        const result = await this.actions.createProposal(
+          episode.id,
+          answer.suggestedActionType,
+        );
+        proposalCreated = true;
+        proposalId = result.proposal.id;
+      } catch (error) {
+        actionOutcomeSuffix = ` (Could not create the proposal: ${
+          error instanceof Error ? error.message : "unknown error"
+        }.)`;
+      }
+    }
+
     const userAt = getDemoClock();
     const userMessage: ConversationMessage = {
       id: messageId("user", episode.id, userAt),
@@ -99,55 +131,41 @@ export class AgentChatService {
       clientRequestId: input.clientRequestId,
     };
 
-    let proposalCreated = false;
-    let proposalId: string | undefined;
-    let assistantContent = answer.content;
-    let latestEpisode: ClaimEpisode = episode;
-
-    if (answer.intent === "request_action" && answer.executeReadOnlyRefresh) {
-      try {
-        const result = await this.actions.refreshPayerStatus(episode.id);
-        const fromSnapshot = result.snapshot.episodes.find((e) => e.id === episode.id);
-        if (fromSnapshot) latestEpisode = fromSnapshot;
-        assistantContent = `${assistantContent} ${result.message}`.trim();
-      } catch (error) {
-        assistantContent = `${assistantContent} (Could not refresh payer status: ${
-          error instanceof Error ? error.message : "unknown error"
-        }.)`;
-      }
-    } else if (answer.intent === "request_action" && answer.suggestedActionType) {
-      try {
-        const result = await this.actions.createProposal(
-          episode.id,
-          answer.suggestedActionType,
-        );
-        proposalCreated = true;
-        proposalId = result.proposal.id;
-        const fromSnapshot = result.snapshot.episodes.find((e) => e.id === episode.id);
-        if (fromSnapshot) latestEpisode = fromSnapshot;
-      } catch (error) {
-        assistantContent = `${assistantContent} (Could not create the proposal: ${
-          error instanceof Error ? error.message : "unknown error"
-        }.)`;
-      }
-    }
-
-    const assistantAt = getDemoClock();
-    const assistantMessage: ConversationMessage = {
-      id: messageId("assistant", episode.id, assistantAt),
-      episodeId: episode.id,
-      role: "assistant",
-      content: assistantContent,
-      intent: answer.intent,
-      citations: answer.citations,
-      createdAt: assistantAt,
-      proposalId,
-    };
-
     return this.store.withMutationLock(async () => {
       await this.store.beginMutation();
       try {
-        const refreshed = (await this.store.getEpisode(episode.id)) ?? latestEpisode;
+        const refreshed = await this.store.getEpisode(episode.id);
+        if (!refreshed) {
+          throw Object.assign(new Error("Episode not found"), { status: 404 });
+        }
+
+        if (input.clientRequestId) {
+          const idempotent = this.findIdempotentTurn(refreshed, input.clientRequestId);
+          if (idempotent) {
+            await this.store.abortMutation();
+            return {
+              snapshot: await this.store.getSnapshot(),
+              userMessage: idempotent.userMessage,
+              assistantMessage: idempotent.assistantMessage,
+              proposalCreated: false,
+              idempotent: true,
+            };
+          }
+        }
+
+        const grounded = answerChatWithIntent(refreshed, answer.intent);
+        const assistantAt = getDemoClock();
+        const assistantMessage: ConversationMessage = {
+          id: messageId("assistant", episode.id, assistantAt),
+          episodeId: episode.id,
+          role: "assistant",
+          content: `${grounded.content}${actionOutcomeSuffix}`.trim(),
+          intent: answer.intent,
+          citations: grounded.citations,
+          createdAt: assistantAt,
+          proposalId,
+        };
+
         const withConversation: ClaimEpisode = {
           ...refreshed,
           conversation: [...(refreshed.conversation ?? []), userMessage, assistantMessage],
@@ -186,7 +204,13 @@ export class AgentChatService {
         }
 
         const snapshot = await this.store.commit();
-        return { snapshot, userMessage, assistantMessage, proposalCreated, idempotent: false };
+        return {
+          snapshot,
+          userMessage,
+          assistantMessage,
+          proposalCreated,
+          idempotent: false,
+        };
       } catch (error) {
         await this.store.abortMutation();
         throw error;
@@ -219,13 +243,10 @@ export class AgentChatService {
         if (this.store.bindThread) {
           await this.store.bindThread(episode.id, classified.threadId);
         }
-        // Domain re-renders grounded content; BFF may only supply intent.
-        const grounded = answerChatWithIntent(
-          episode,
-          classified.intent as AgentIntent,
-        );
-        // Prefer server policy action for the fixture over model suggestion.
-        return grounded;
+        // Domain policy discovery only; final grounded content is rendered
+        // from the refreshed durable episode inside the chat mutation lock.
+        // BFF may only supply intent.
+        return answerChatWithIntent(episode, classified.intent as AgentIntent);
       } catch (error) {
         const sanitized = sanitizeBffError(error);
         throw Object.assign(new Error(sanitized.message), {
