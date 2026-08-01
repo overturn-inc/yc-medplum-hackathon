@@ -42,6 +42,28 @@ export class StoreDegradedError extends Error {
   }
 }
 
+/** Optimistic-concurrency conflict against the durable event ledger (e.g. seq UNIQUE). */
+export class StoreConflictError extends Error {
+  readonly status = 409;
+  readonly code = "STORE_CONFLICT";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "StoreConflictError";
+  }
+}
+
+/** Durable write failed closed: missing/false D1 results, unexpected changes, or verify miss. */
+export class StorePersistenceError extends Error {
+  readonly status = 503;
+  readonly code = "STORE_PERSISTENCE_FAILED";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "StorePersistenceError";
+  }
+}
+
 function defaultDataDir(): string {
   return process.env.DEMO_DATA_DIR
     ? path.resolve(process.cwd(), process.env.DEMO_DATA_DIR)
