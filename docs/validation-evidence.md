@@ -1,6 +1,6 @@
 # Validation evidence
 
-Validated: 2026-08-01 14:30 PDT (AWS Moss sidecar and public release)
+Validated: 2026-08-01 14:36 PDT (hardened AWS Moss sidecar and public release)
 
 Final verdict: **PASS** after the final Claude Design implementation, Moss live
 SDK and Linux container validation, AWS sidecar deployment, local aggregate
@@ -115,6 +115,11 @@ npm run verify
 - The external sidecar route rejected an unauthenticated query with HTTP 401 and
   returned three Claim C evidence documents for an authenticated query in 9.1ms,
   with 8.9ms spent in Moss search. The public Worker stores only the sidecar key.
+- The initial Debian runtime image scan exposed base-package findings, so the
+  deployed v4 image was rebuilt as a non-root multi-stage image with a Chainguard
+  Node runtime. ECR basic scanning completed with no Critical, High, Medium, or
+  Low findings. A post-replacement public app smoke returned four Claim C Moss
+  documents through `aws-local-sidecar`, no retrieval error, and no proposal.
 - The final public runtime config reported healthcare `local`, agent `bff`, Moss
   `live`, Moss configured `true`, execution `sidecar`, and seven episodes.
 - `LIVE_BASE_URL=https://overturn-agentic-claims.argentum1450.chatgpt.site
