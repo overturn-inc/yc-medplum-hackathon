@@ -74,7 +74,9 @@ async function main() {
 
   // Claim F: no mutation via chat
   await page.goto(`${LIVE_ROOT}/claims/episode-claim-f`);
-  await page.getByText("Verified paid").waitFor({ timeout: 30_000 });
+  await page
+    .getByText("Verified paid", { exact: true })
+    .waitFor({ timeout: 30_000 });
   await page.getByTestId("agent-chat-input").fill("Submit this claim for me");
   await page.getByTestId("agent-chat-send").click();
   await page.waitForTimeout(800);
@@ -100,7 +102,9 @@ async function main() {
   // One-session reset on A
   await reset(page);
   await page.goto(`${LIVE_ROOT}/claims/episode-claim-f`);
-  await page.getByText("Verified paid").waitFor({ timeout: 30_000 });
+  await page
+    .getByText("Verified paid", { exact: true })
+    .waitFor({ timeout: 30_000 });
 
   console.log(`Live mutation E2E passed against ${LIVE_ROOT}`);
   await contextA.close();

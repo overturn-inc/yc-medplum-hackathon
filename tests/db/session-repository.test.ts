@@ -282,5 +282,32 @@ describe("session and D1 repository isolation", () => {
     const snapshot = await shared.getSnapshot();
     expect(snapshot.events.filter((e) => e.type === "approval.consumed")).toHaveLength(1);
     expect(snapshot.events.filter((e) => e.type === "claim.submitted")).toHaveLength(1);
+
+    // Deterministic event ids must not collide across anonymous sessions.
+    const other = new D1SessionRepository(
+      `d1-other-${Math.random().toString(36).slice(2)}`,
+      db,
+    );
+    const otherActions = new ActionService(other);
+    const otherEpisode = await other.getEpisode("episode-encounter-a");
+    const otherResult = await otherActions.decide({
+      episodeId: "episode-encounter-a",
+      actionType: "submit_claim",
+      decision: "allow_once",
+      scope: proposalApprovalFields(otherEpisode!.proposal!),
+    });
+    expect(otherResult.receiptId).toBeTruthy();
+
+    // Reset starts a new journey in the same session: reservations and
+    // deterministic action events from the previous journey cannot block it.
+    await shared.reset();
+    const resetEpisode = await shared.getEpisode("episode-encounter-a");
+    const afterReset = await actionsA.decide({
+      episodeId: "episode-encounter-a",
+      actionType: "submit_claim",
+      decision: "allow_once",
+      scope: proposalApprovalFields(resetEpisode!.proposal!),
+    });
+    expect(afterReset.receiptId).toBeTruthy();
   });
 });

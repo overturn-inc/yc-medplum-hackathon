@@ -171,6 +171,7 @@ export class D1SessionRepository implements SessionRepository {
   private async appendPersisted(events: DomainEvent[]): Promise<void> {
     const statements: D1PreparedStatement[] = [];
     for (const event of events) {
+      const seq = this.nextSeq;
       statements.push(
         this.db
           .prepare(
@@ -178,9 +179,13 @@ export class D1SessionRepository implements SessionRepository {
              VALUES (?, ?, ?, ?, ?, ?)`,
           )
           .bind(
-            event.id,
+            // Domain event ids are deterministic inside a demo journey and may
+            // legitimately repeat in another anonymous session or after reset.
+            // The storage key therefore includes both the session and append
+            // sequence while payload_json preserves the domain event unchanged.
+            `${this.sessionId}:${seq}:${event.id}`,
             this.sessionId,
-            this.nextSeq,
+            seq,
             event.at,
             event.type,
             JSON.stringify(event),
@@ -451,13 +456,29 @@ export class D1SessionRepository implements SessionRepository {
         .prepare(`DELETE FROM events WHERE session_id = ?`)
         .bind(this.sessionId)
         .run();
-      await this.db
-        .prepare(`DELETE FROM action_reservations WHERE session_id = ?`)
-        .bind(this.sessionId)
-        .run();
       this.nextSeq = 1;
       this.degraded = null;
     }
+    // Reset is a new demo journey. Clear every session-scoped idempotency,
+    // conversation, and BFF binding so deterministic fixture actions can run
+    // again without inheriting a failed or completed reservation.
+    await this.db.batch([
+      this.db
+        .prepare(`DELETE FROM action_reservations WHERE session_id = ?`)
+        .bind(this.sessionId),
+      this.db
+        .prepare(
+          `DELETE FROM conversation_messages WHERE conversation_id IN
+           (SELECT id FROM conversations WHERE session_id = ?)`,
+        )
+        .bind(this.sessionId),
+      this.db
+        .prepare(`DELETE FROM conversations WHERE session_id = ?`)
+        .bind(this.sessionId),
+      this.db
+        .prepare(`DELETE FROM episode_thread_bindings WHERE session_id = ?`)
+        .bind(this.sessionId),
+    ]);
     const fresh = createInitialSnapshot({
       healthcareMode: this.healthcareMode,
       agentMode: this.agentMode,
