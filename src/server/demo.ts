@@ -1,4 +1,4 @@
-import { createBffAgentAdapter, sanitizeBffError } from "@/adapters/agent/bff";
+import { createBffAgentAdapter } from "@/adapters/agent/bff";
 import { cache } from "react";
 import { createSyntheticAgentAdapter } from "@/adapters/agent/synthetic";
 import { createLocalHealthcareRepository } from "@/adapters/healthcare/local";
@@ -20,29 +20,6 @@ import { StoreDegradedError } from "@/server/store";
 import type { SessionRepository } from "@/server/repository";
 
 type AgentStatus = { available: boolean; error?: string };
-
-const probeBffForRender = cache(
-  async (baseUrl: string, apiKey: string): Promise<AgentStatus> => {
-    const agent = createBffAgentAdapter({ baseUrl, apiKey });
-    return agent.probe
-      ? agent.probe()
-      : { available: false, error: "BFF probe unavailable" };
-  },
-);
-
-async function getAgentStatusForRender(): Promise<AgentStatus> {
-  const result = await probeBffForRender(
-    process.env.BFF_BASE_URL || "https://bff.example",
-    process.env.BFF_API_KEY || "missing",
-  );
-  if (result.available) return result;
-  return {
-    available: false,
-    error: sanitizeBffError(
-      new Error(result.error ?? "BFF unavailable"),
-    ).message,
-  };
-}
 
 export async function getDemoRuntime(store: SessionRepository) {
   try {
@@ -148,12 +125,15 @@ const buildDemoViewModel = async (store: SessionRepository) => {
     // continue
   }
 
-  let agentStatus: AgentStatus = {
-    available: true,
-  };
-  if (runtime.config.agentMode === "bff") {
-    agentStatus = await getAgentStatusForRender();
-  }
+  // Page reads must not synchronously health-check the remote agent. Doing so
+  // put the BFF network round trip on every navigation's critical render path.
+  // Configuration errors can be reported immediately; operational readiness
+  // is checked at the chat/approval API boundary where failures are visible and
+  // approved actions remain fail-closed with no synthetic fallback.
+  const agentStatus: AgentStatus =
+    runtime.config.agentMode === "bff" && !runtime.config.bffConfigured
+      ? { available: false, error: "BFF is not configured" }
+      : { available: true };
 
   let snapshot: DemoSnapshot;
   let connectedWritesAvailable = true;
@@ -241,15 +221,12 @@ export async function getEpisodeView(episodeId: string, store: SessionRepository
   let episode = snapshot.episodes.find((e) => e.id === episodeId);
   if (!episode) return null;
 
-  if (runtime.config.agentMode === "bff") {
-    const status = await getAgentStatusForRender();
-    if (!status.available) {
-      episode = {
-        ...episode,
-        proposal: null,
-        issue: status.error ?? "Connect BFF to generate agent proposals",
-      };
-    }
+  if (runtime.config.agentMode === "bff" && !runtime.config.bffConfigured) {
+    episode = {
+      ...episode,
+      proposal: null,
+      issue: "Connect BFF to generate agent proposals",
+    };
   }
 
   const view = enrichEpisode(episode);

@@ -323,7 +323,10 @@ Payer-reported paid, submitted, accepted, reprocessed는 이 조건을 만족하
 ## Failure behavior
 
 - Medplum unavailable: 명시적인 connected-mode error와 retry
-- BFF unavailable: agent panel degraded error와 retry, action 미실행
+- BFF unconfigured: agent panel degraded error. BFF가 configured 상태에서
+  unreachable하면 chat/action 요청에서 명시적 error와 retry를 보여주고 action은
+  미실행한다. 페이지 이동의 critical render path에서는 remote readiness를 기다리지
+  않는다.
 - Submission timeout: outcome unknown, submitted로 집계하지 않음
 - Duplicate webhook: inbound transaction ID 기준 no-op
 - Raw response parse failure: evidence 보존, normalization exception 생성

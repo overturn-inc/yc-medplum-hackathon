@@ -138,7 +138,7 @@ export function AgentStation({
           </div>
           <span className="agent-connection" data-testid="agent-mode-badge">
             <span aria-hidden className="status-dot" />
-            {agentMode === "bff" ? "BFF live" : "Synthetic"}
+            {agentMode === "bff" ? "BFF configured" : "Synthetic"}
           </span>
         </div>
         <p className="agent-boundary">Grounded answers only · no silent local fallback</p>

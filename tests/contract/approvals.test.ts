@@ -11,12 +11,46 @@ import { createSyntheticAgentAdapter } from "@/adapters/agent/synthetic";
 import { loadServerConfig } from "@/server/config";
 import { proposalApprovalFields } from "@/domain/approval";
 import type { ClientApprovalScope } from "@/domain/approval";
-import { getDemoRuntime, getDemoViewModel } from "@/server/demo";
+import { getDemoRuntime, getDemoViewModel, getEpisodeView } from "@/server/demo";
 
 function tempStore(agentMode: "synthetic" | "bff" = "synthetic") {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "pms-demo-"));
   return new LocalEventStore({ dataDir, healthcareMode: "local", agentMode });
 }
+
+describe("BFF render boundary", () => {
+  it("does not put a remote readiness probe on page-model reads", async () => {
+    const store = tempStore("bff");
+    const originalFetch = globalThis.fetch;
+    const originalMode = process.env.AGENT_MODE;
+    const originalBaseUrl = process.env.BFF_BASE_URL;
+    const originalApiKey = process.env.BFF_API_KEY;
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      throw new Error("render must not call BFF");
+    }) as typeof fetch;
+    process.env.AGENT_MODE = "bff";
+    process.env.BFF_BASE_URL = "https://bff.invalid.example";
+    process.env.BFF_API_KEY = "configured-test-key";
+
+    try {
+      const model = await getDemoViewModel(store);
+      expect(model.ok).toBe(true);
+      const detail = await getEpisodeView("episode-claim-c", store);
+      expect(detail).not.toBeNull();
+      expect(fetchCount).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalMode === undefined) delete process.env.AGENT_MODE;
+      else process.env.AGENT_MODE = originalMode;
+      if (originalBaseUrl === undefined) delete process.env.BFF_BASE_URL;
+      else process.env.BFF_BASE_URL = originalBaseUrl;
+      if (originalApiKey === undefined) delete process.env.BFF_API_KEY;
+      else process.env.BFF_API_KEY = originalApiKey;
+    }
+  });
+});
 
 function scopeFor(store: LocalEventStore, episodeId: string): ClientApprovalScope {
   const episode = store.getEpisode(episodeId)!;
