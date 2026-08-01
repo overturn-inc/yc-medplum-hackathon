@@ -52,9 +52,13 @@ evidence-backed workspace with approval-gated actions.
   been validated locally with synthetic Claim C context. It uses Deepgram Flux
   speech recognition and Aura-2 speech synthesis, but is not yet connected to
   the public product workflow or Medplum audit trail.
-- **Moss.dev:** A Moss project and starter index exist, but the product does not
-  yet query it. The intended role is low-latency retrieval of approved,
-  claim-scoped call guidance and evidence for the voice agent.
+- **Moss.dev:** The product creates a dedicated 39-document synthetic claims
+  index and performs real claim-scoped semantic retrieval inside the agent
+  station. Claim C visibly shows the retrieved denial, authorization, 277, and
+  reconciliation sources with similarity scores and latency. The same retrieval
+  boundary is designed for the phone agent: only metadata-matched documents for
+  the current episode survive the server-side scope guard. A live SDK validation
+  loaded the cloud index and completed warm local in-memory search in 7.8ms.
 
 The public demo also uses the live Breakfast Factory agent backbone through its
 AWS acceptance environment for conversational intent classification. Grounding,
@@ -79,7 +83,7 @@ server-owned so a model completion cannot be mistaken for a payer write.
    received with adjudication not found.
 5. Claim B overdue payer status refresh (read-only; never marks paid).
 6. Claim C PMS-versus-payer authorization discrepancy with Deny, Re-propose, and
-   Allow once reprocessing evidence.
+   Allow once reprocessing evidence, plus live Moss matches and latency.
 7. Claim D clearinghouse rejection corrected resubmission that preserves the
    original claim and updates queues.
 8. Claim E send of an existing signed supporting note after approval.
@@ -95,7 +99,8 @@ server-owned so a model completion cannot be mistaken for a payer write.
 - BFF `run_completed` proves model completion only, never payer mutation success.
 - Domain connector receipts alone prove mutation success.
 - No claim of a live Stedi 837P/277CA/835 transaction, real Medplum credentials,
-  product-integrated Moss retrieval, PMF, or live payer writes. Deepgram is a locally validated
+  PMF, or live payer writes. Moss retrieval is product-integrated against a
+  synthetic-only index. Deepgram is a locally validated
   voice proof of concept until it is connected to the public workflow.
 
 ## Verification
@@ -113,7 +118,7 @@ deployed version passed three consecutive runs while asserting `Agent: bff`.
 1. 0:00-0:20 — Problem and dashboard: explain source fragmentation and synthetic mode.
 2. 0:20-0:55 — Encounter A: submit with Allow once, then ask the agent for current status.
 3. 0:55-1:30 — Claim D: explain clearinghouse rejection versus payer denial; correct member ID and resubmit.
-4. 1:30-2:05 — Claim C: show PMS/payer discrepancy, deny and re-propose, approve reprocessing, ask status again.
+4. 1:30-2:05 — Claim C: ask for evidence, show Moss sources/latency, then deny and re-propose, approve reprocessing, and ask status again.
 5. 2:05-2:30 — Claim B and E: approval-free read-only refresh and documentation response.
 6. 2:30-2:50 — Claim F: independent 835 and PMS posting evidence for verified paid.
 7. 2:50-3:00 — Medplum FHIR architecture, public URL, and honest synthetic boundary.
@@ -138,6 +143,8 @@ YouTube link, and YouTube view count. The code repository link is optional.
   model and a fail-closed Medplum adapter, but the public release is not connected
   to a live Medplum project. Stedi now executes a real test-mode 270/271 request;
   the claim rail remains blocked by the current Sandbox account entitlement.
+  Moss now performs real product-integrated retrieval from a dedicated synthetic
+  corpus; its Node path has been live-validated with local in-memory search.
 - **Cannot be completed autonomously:** A live Medplum connection requires a
   project plus server-side client credentials supplied by the team. A YouTube
   upload and the final form also require the team owner's account and personal

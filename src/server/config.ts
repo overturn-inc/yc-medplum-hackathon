@@ -7,6 +7,11 @@ const configSchema = z.object({
   stediMode: z.enum(["off", "test"]),
   stediBaseUrl: z.string().url().optional(),
   stediApiKey: z.string().min(1).optional(),
+  mossMode: z.enum(["off", "live"]),
+  mossExecution: z.enum(["cloud", "local"]),
+  mossProjectId: z.string().min(1).optional(),
+  mossProjectKey: z.string().min(1).optional(),
+  mossIndexName: z.string().min(1).optional(),
   medplumBaseUrl: z.string().url().optional(),
   medplumClientId: z.string().min(1).optional(),
   medplumClientSecret: z.string().min(1).optional(),
@@ -28,6 +33,8 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
   const healthcareMode = (env.HEALTHCARE_MODE as HealthcareMode) || "local";
   const agentMode = (env.AGENT_MODE as AgentMode) || "synthetic";
   const stediMode = env.STEDI_MODE === "test" ? "test" : "off";
+  const mossMode = env.MOSS_MODE === "live" ? "live" : "off";
+  const mossExecution = env.MOSS_EXECUTION === "local" ? "local" : "cloud";
 
   const parsed = configSchema.safeParse({
     healthcareMode,
@@ -35,6 +42,11 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     stediMode,
     stediBaseUrl: env.STEDI_BASE_URL,
     stediApiKey: env.STEDI_API_KEY,
+    mossMode,
+    mossExecution,
+    mossProjectId: env.MOSS_PROJECT_ID,
+    mossProjectKey: env.MOSS_PROJECT_KEY,
+    mossIndexName: env.MOSS_INDEX_NAME,
     medplumBaseUrl: env.MEDPLUM_BASE_URL,
     medplumClientId: env.MEDPLUM_CLIENT_ID,
     medplumClientSecret: env.MEDPLUM_CLIENT_SECRET,
@@ -72,6 +84,15 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     throw new Error("STEDI_MODE=test requires STEDI_API_KEY");
   }
 
+  if (
+    config.mossMode === "live" &&
+    (!config.mossProjectId || !config.mossProjectKey || !config.mossIndexName)
+  ) {
+    throw new Error(
+      "MOSS_MODE=live requires MOSS_PROJECT_ID, MOSS_PROJECT_KEY, and MOSS_INDEX_NAME",
+    );
+  }
+
   return config;
 }
 
@@ -82,6 +103,9 @@ export function publicAdapterStatus(config: ServerConfig): {
   bffConfigured: boolean;
   stediMode: "off" | "test";
   stediConfigured: boolean;
+  mossMode: "off" | "live";
+  mossConfigured: boolean;
+  mossExecution: "cloud" | "local";
 } {
   return {
     healthcareMode: config.healthcareMode,
@@ -95,5 +119,10 @@ export function publicAdapterStatus(config: ServerConfig): {
     bffConfigured: Boolean(config.bffBaseUrl && config.bffApiKey),
     stediMode: config.stediMode,
     stediConfigured: config.stediMode === "test" && Boolean(config.stediApiKey),
+    mossMode: config.mossMode,
+    mossConfigured:
+      config.mossMode === "live" &&
+      Boolean(config.mossProjectId && config.mossProjectKey && config.mossIndexName),
+    mossExecution: config.mossExecution,
   };
 }

@@ -52,6 +52,7 @@ export default async function EncountersPage({
               events={focus.events}
               agentMode={model.config.agentMode}
               stediConfigured={model.config.stediConfigured}
+              mossConfigured={model.config.mossConfigured}
               compactHeader
             />
           </section>

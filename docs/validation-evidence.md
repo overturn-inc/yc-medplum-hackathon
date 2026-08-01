@@ -35,7 +35,7 @@ npm run verify
 | ESLint | Passed |
 | FHIR validation | Passed (3) |
 | Unit tests | Passed (36) |
-| Contract tests | Passed (42) |
+| Contract tests | Passed (48) |
 | Replay tests | Passed (3) |
 | Database / session / D1 tests | Passed (19) |
 | Next.js production build (`build:next`) | Passed |
@@ -93,6 +93,21 @@ npm run verify
   claims are unavailable until upgrade. No 837P, 277CA, 835, production payer,
   or real PHI claim is made.
 - No claim of live Stedi claim submission, live Medplum credentials, or live payer writes.
+- A dedicated Moss index named `overturn-claims-demo-v1` was created with 39
+  synthetic-only documents. The official SDK loaded that live index and returned
+  only Claim C documents through a metadata filter. Cold load was 1,484ms and
+  warm local semantic search was 7.8ms in the standalone proof.
+- A production Next server and manual browser journey then returned four Moss
+  documents for “What evidence supports reprocessing?”, ranked the assistant's
+  episode citations from those matches, and visibly rendered the sources,
+  scores, and 13.9ms warm retrieval latency. No proposal or write was created.
+- Moss credentials remain server-only in the ignored local environment. The
+  indexed corpus omits patient names and member IDs, and contract tests reject
+  cross-episode documents after retrieval.
+- Moss's hosted cloud query endpoint returned HTTP 503 during final validation.
+  The official SDK local in-memory path is working; public Worker activation
+  remains contingent on the hosted query service recovering or a Node retrieval
+  sidecar being deployed.
 - `LIVE_BASE_URL=https://overturn-agentic-claims.argentum1450.chatgpt.site
   LIVE_EXPECT_AGENT_MODE=bff npm run test:e2e:live` passed the final release-20
   run after three earlier full runs. The runs covered Encounter A submission, Claim B refresh, Claim C deny,

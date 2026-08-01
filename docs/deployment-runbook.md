@@ -56,6 +56,12 @@ Set server-only env from `.env.example`:
 
 - `HEALTHCARE_MODE=medplum` + `MEDPLUM_*`
 - `AGENT_MODE=bff` + `BFF_*`
+- `MOSS_MODE=live` + `MOSS_PROJECT_ID`, `MOSS_PROJECT_KEY`, and `MOSS_INDEX_NAME`
+
+For Node development, `MOSS_EXECUTION=local` downloads the real Moss index once
+and performs in-memory semantic search. Sites Workers use `MOSS_EXECUTION=cloud`
+because the current Moss SDK package includes native Node binaries. Both paths
+use Moss; no non-Moss retrieval fallback is enabled.
 
 Missing or failing connected config shows an explicit degraded / chat error state.
 There is no silent fallback to synthetic chat classification. When healthcare

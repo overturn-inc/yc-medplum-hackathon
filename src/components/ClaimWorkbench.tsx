@@ -62,6 +62,7 @@ export function ClaimWorkbench({
   events = [],
   agentMode = "synthetic",
   stediConfigured = false,
+  mossConfigured = false,
   compactHeader = false,
 }: {
   episode: EpisodeView;
@@ -69,6 +70,7 @@ export function ClaimWorkbench({
   events?: DomainEvent[];
   agentMode?: string;
   stediConfigured?: boolean;
+  mossConfigured?: boolean;
   compactHeader?: boolean;
 }) {
   const pms = latestObservation(episode, "pms");
@@ -264,6 +266,7 @@ export function ClaimWorkbench({
           preflight={preflight}
           events={events}
           agentMode={agentMode}
+          mossConfigured={mossConfigured}
         />
       </div>
     </div>

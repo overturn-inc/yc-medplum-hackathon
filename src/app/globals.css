@@ -1541,6 +1541,69 @@ td small {
   font-size: 0.61rem;
 }
 
+.moss-retrieval {
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #dbe8e4;
+  background: linear-gradient(135deg, #f7fbfa 0%, #edf7f4 100%);
+}
+
+.moss-retrieval-header,
+.moss-result-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.moss-retrieval-header > span:first-child,
+.moss-result-list li > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.moss-retrieval-header strong {
+  color: var(--teal);
+  font-size: 0.68rem;
+}
+
+.moss-retrieval-header small,
+.moss-result-list small {
+  color: var(--muted);
+  font-size: 0.56rem;
+}
+
+.moss-result-list {
+  display: grid;
+  gap: 5px;
+}
+
+.moss-result-list li {
+  padding: 6px 7px;
+  border: 1px solid #d6e9e4;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.moss-result-list strong,
+.moss-result-list code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.moss-result-list strong {
+  color: var(--ink-2);
+  font-size: 0.61rem;
+}
+
+.moss-result-list code {
+  color: var(--teal);
+  font-size: 0.54rem;
+}
+
 .chat-thread {
   display: grid;
   gap: 8px;
