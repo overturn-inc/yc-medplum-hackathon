@@ -238,10 +238,11 @@ describe("AgentChatService post-action consistency (repair)", () => {
             needs_reconciliation: false,
             payload: {
               model_call_id: "mc_status",
+              // Closed classifier shape only. Wrong suggestedActionType must
+              // still be ignored by server-owned domain grounding.
               assistant_content: JSON.stringify({
                 intent: "status",
                 suggestedActionType: "submit_claim",
-                content: "This is ready for claim submission (model hallucination).",
               }),
             },
           };

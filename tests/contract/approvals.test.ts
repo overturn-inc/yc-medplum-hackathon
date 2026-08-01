@@ -1539,3 +1539,169 @@ describe("approval and adapter contracts (repair-2)", () => {
     ).rejects.toMatchObject({ status: 502 });
   });
 });
+
+describe("BFF conversation classifier JSON fence acceptance", () => {
+  function classifierFetch(assistantContent: string, clientRequestId: string) {
+    return async (url: string | URL, init?: RequestInit) => {
+      const href = String(url);
+      if (href.endsWith("v1/threads") && init?.method === "POST") {
+        return new Response(JSON.stringify({ thread_id: "thr_fence" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (href.includes("/runs") && init?.method === "POST") {
+        return new Response(
+          JSON.stringify({
+            run_id: "run_fence",
+            thread_id: "thr_fence",
+            client_request_id: clientRequestId,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (href.includes("/events")) {
+        const event = {
+          contract_version: "v1",
+          event_id: "evt-fence",
+          run_id: "run_fence",
+          attempt_id: "att_fence",
+          origin: "runtime",
+          attempt_sequence: 1,
+          run_event_index: 1,
+          event_type: "model_response_completed",
+          occurred_at: "2026-08-01T00:00:00.000Z",
+          run_state: "active",
+          needs_reconciliation: false,
+          payload: {
+            model_call_id: "mc_fence",
+            assistant_content: assistantContent,
+          },
+        };
+        return new Response(sseFrame(event, 1), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      return new Response("no", { status: 404 });
+    };
+  }
+
+  it("accepts the exact Bedrock Sonnet single json fence for status", async () => {
+    const fenced =
+      '```json\n{"intent":"status","suggestedActionType":null}\n```';
+    const bff = createBffAgentAdapter({
+      baseUrl: "https://bff.example/",
+      apiKey: "k",
+      fetchImpl: classifierFetch(fenced, "cr-fence-status"),
+    });
+    const result = await bff.classifyConversation!({
+      episodeId: "episode-encounter-a",
+      message: "What's the status?",
+      clientRequestId: "cr-fence-status",
+    });
+    expect(result.intent).toBe("status");
+    expect(result.suggestedActionType).toBeNull();
+    expect(JSON.stringify(result)).not.toContain("```");
+    expect(JSON.stringify(result)).not.toContain(fenced);
+  });
+
+  it("still accepts raw JSON object strings", async () => {
+    const bff = createBffAgentAdapter({
+      baseUrl: "https://bff.example/",
+      apiKey: "k",
+      fetchImpl: classifierFetch(
+        JSON.stringify({ intent: "reason", suggestedActionType: null }),
+        "cr-raw-json",
+      ),
+    });
+    const result = await bff.classifyConversation!({
+      episodeId: "episode-claim-d",
+      message: "Why was this denied?",
+      clientRequestId: "cr-raw-json",
+    });
+    expect(result.intent).toBe("reason");
+    expect(result.suggestedActionType).toBeNull();
+  });
+
+  it("rejects prose before or after a json fence", async () => {
+    const withPrefix =
+      'Here you go:\n```json\n{"intent":"status","suggestedActionType":null}\n```';
+    const withSuffix =
+      '```json\n{"intent":"status","suggestedActionType":null}\n```\nThanks!';
+    for (const [label, content] of [
+      ["prefix", withPrefix],
+      ["suffix", withSuffix],
+    ] as const) {
+      const bff = createBffAgentAdapter({
+        baseUrl: "https://bff.example/",
+        apiKey: "k",
+        fetchImpl: classifierFetch(content, `cr-prose-${label}`),
+      });
+      await expect(
+        bff.classifyConversation!({
+          episodeId: "episode-encounter-a",
+          message: "status?",
+          clientRequestId: `cr-prose-${label}`,
+        }),
+      ).rejects.toMatchObject({
+        code: "BFF_INVALID_RESPONSE",
+        message: expect.stringMatching(/non-JSON/i),
+      });
+    }
+  });
+
+  it("rejects malformed fenced JSON and unlabeled fences", async () => {
+    const cases = [
+      ['```json\n{"intent":"status",\n```', "cr-malformed"],
+      ['```\n{"intent":"status","suggestedActionType":null}\n```', "cr-unlabeled"],
+      [
+        '```json\n{"intent":"status","suggestedActionType":null}\n```\n```json\n{"intent":"reason","suggestedActionType":null}\n```',
+        "cr-multi",
+      ],
+    ] as const;
+    for (const [content, clientRequestId] of cases) {
+      const bff = createBffAgentAdapter({
+        baseUrl: "https://bff.example/",
+        apiKey: "k",
+        fetchImpl: classifierFetch(content, clientRequestId),
+      });
+      await expect(
+        bff.classifyConversation!({
+          episodeId: "episode-encounter-a",
+          message: "status?",
+          clientRequestId,
+        }),
+      ).rejects.toMatchObject({ code: "BFF_INVALID_RESPONSE" });
+    }
+  });
+
+  it("rejects unknown extra fields on raw and fenced JSON before enum coercion", async () => {
+    const withExtra = {
+      intent: "status",
+      suggestedActionType: null,
+      content: "ready for claim submission",
+    };
+    const cases = [
+      [JSON.stringify(withExtra), "cr-extra-raw"],
+      [`\`\`\`json\n${JSON.stringify(withExtra)}\n\`\`\``, "cr-extra-fence"],
+    ] as const;
+    for (const [content, clientRequestId] of cases) {
+      const bff = createBffAgentAdapter({
+        baseUrl: "https://bff.example/",
+        apiKey: "k",
+        fetchImpl: classifierFetch(content, clientRequestId),
+      });
+      await expect(
+        bff.classifyConversation!({
+          episodeId: "episode-encounter-a",
+          message: "status?",
+          clientRequestId,
+        }),
+      ).rejects.toMatchObject({
+        code: "BFF_INVALID_RESPONSE",
+        message: expect.stringMatching(/exactly intent and suggestedActionType/i),
+      });
+    }
+  });
+});

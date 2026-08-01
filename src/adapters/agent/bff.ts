@@ -318,6 +318,54 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * Extract the closed classifier JSON document from BFF assistant content.
+ *
+ * Accepts only:
+ * - a raw JSON object string (after outer trim), or
+ * - exactly one complete markdown fence labeled `json` whose body is the
+ *   JSON document alone (Bedrock Claude's observed form).
+ *
+ * Rejects prefix/suffix prose, multiple fences, unlabeled fences, and
+ * anything that is not already raw JSON or that single labeled fence.
+ * Does not invent a synthetic fallback.
+ */
+export function extractClassifierJsonDocument(rawContent: string): string {
+  const trimmed = rawContent.trim();
+  if (!trimmed) {
+    throw new BffAdapterError(
+      "BFF_INVALID_RESPONSE",
+      "BFF conversation classifier returned empty assistant content",
+      502,
+    );
+  }
+
+  if (trimmed.startsWith("{")) {
+    return trimmed;
+  }
+
+  // Exact form: ```json\n<document>\n``` with optional CRLF. Anchored so any
+  // surrounding prose or a second fence fails.
+  const fenced = /^```json\r?\n([\s\S]*?)\r?\n```$/.exec(trimmed);
+  if (!fenced) {
+    throw new BffAdapterError(
+      "BFF_INVALID_RESPONSE",
+      "BFF conversation classifier returned non-JSON content",
+      502,
+    );
+  }
+
+  const body = fenced[1]!.trim();
+  if (!body || body.includes("```") || !body.startsWith("{")) {
+    throw new BffAdapterError(
+      "BFF_INVALID_RESPONSE",
+      "BFF conversation classifier returned non-JSON content",
+      502,
+    );
+  }
+  return body;
+}
+
 function isIdentifier(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
@@ -1217,8 +1265,9 @@ export function createBffAgentAdapter(input: {
 
       let parsed: unknown;
       try {
-        parsed = JSON.parse(rawContent);
-      } catch {
+        parsed = JSON.parse(extractClassifierJsonDocument(rawContent));
+      } catch (error) {
+        if (error instanceof BffAdapterError) throw error;
         throw new BffAdapterError(
           "BFF_INVALID_RESPONSE",
           "BFF conversation classifier returned non-JSON content",
@@ -1229,6 +1278,20 @@ export function createBffAgentAdapter(input: {
         throw new BffAdapterError(
           "BFF_INVALID_RESPONSE",
           "BFF conversation classifier JSON was not an object",
+          502,
+        );
+      }
+
+      // Closed two-field shape only — reject unknowns before enum coercion.
+      const classifierKeys = Object.keys(parsed);
+      if (
+        classifierKeys.length !== 2 ||
+        !classifierKeys.includes("intent") ||
+        !classifierKeys.includes("suggestedActionType")
+      ) {
+        throw new BffAdapterError(
+          "BFF_INVALID_RESPONSE",
+          "BFF conversation classifier JSON must contain exactly intent and suggestedActionType",
           502,
         );
       }
@@ -1258,7 +1321,6 @@ export function createBffAgentAdapter(input: {
       const suggested = parsed.suggestedActionType;
       if (
         suggested !== null &&
-        suggested !== undefined &&
         (typeof suggested !== "string" || !actions.has(suggested))
       ) {
         throw new BffAdapterError(
@@ -1277,7 +1339,7 @@ export function createBffAgentAdapter(input: {
           | "request_action"
           | "unsupported",
         suggestedActionType:
-          suggested === undefined || suggested === null
+          suggested === null
             ? null
             : (suggested as
                 | "submit_claim"
