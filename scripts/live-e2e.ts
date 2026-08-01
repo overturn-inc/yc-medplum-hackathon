@@ -145,7 +145,7 @@ async function main() {
   // Claim F: no mutation via chat
   await page.goto(`${LIVE_ROOT}/claims/episode-claim-f`);
   await page
-    .getByText("Verified paid", { exact: true })
+    .getByRole("heading", { name: "Verified paid", exact: true })
     .waitFor({ timeout: 30_000 });
   await page.getByTestId("agent-chat-input").fill("Submit this claim for me");
   await expect(page.getByTestId("agent-chat-send")).toBeEnabled({
@@ -156,7 +156,7 @@ async function main() {
     "There is no scripted next action for this episode",
     { timeout: 30_000 },
   );
-  await expect(page.getByText(/No open proposal/)).toBeVisible();
+  await expect(page.getByText("No write action available", { exact: true })).toBeVisible();
   await expect(page.getByTestId("allow-once")).toHaveCount(0);
 
   console.log("[live] Dashboard projection and refresh persistence");
@@ -184,7 +184,7 @@ async function main() {
   await reset(page);
   await page.goto(`${LIVE_ROOT}/claims/episode-claim-f`);
   await page
-    .getByText("Verified paid", { exact: true })
+    .getByRole("heading", { name: "Verified paid", exact: true })
     .waitFor({ timeout: 30_000 });
 
   console.log(`Live mutation E2E passed against ${LIVE_ROOT}`);

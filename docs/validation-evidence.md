@@ -1,13 +1,15 @@
 # Validation evidence
 
-Validated: 2026-08-01 (public release)
+Validated: 2026-08-01 11:27 PDT (public release)
 
-Final verdict: **PASS** from a fresh independent Validator after the final repair cycle.
+Final verdict: **PASS** after the final Claude Design implementation, local aggregate
+gate, successful Sites deployment, public visual inspection, and three consecutive
+public mutation E2E runs.
 
 Public release: https://overturn-agentic-claims.argentum1450.chatgpt.site
 
-Public Sites release: version 13 from runtime commit
-`706b9ba4410d8dbb41ff9920266bb17051780cdb`.
+Public Sites release: version 17 from runtime commit
+`d77faa3dc5a1a8df5855240b215993b0a411844c`.
 
 ## Aggregate gate
 
@@ -42,9 +44,9 @@ npm run verify
 | package-site.sh archive | Passed |
 | Secret canary | Passed |
 | Public anonymous HTTP | Passed (200) |
-| Public mutation E2E | Passed three consecutive full runs with required `Agent: bff` on version 13 |
-| Manual public browser journey | Passed: BFF answer, Deny, re-propose, Allow once, receipt, dashboard update |
-| Independent final Validator | Passed at runtime commit `706b9ba4410d8dbb41ff9920266bb17051780cdb` |
+| Public mutation E2E | Passed three consecutive full runs with required `Agent: bff` on version 17 |
+| Public browser inspection | Passed: final dashboard rendered with all mode badges, KPI, queues, funnel, flags, and safety boundary |
+| Pre-hydration interaction safety | Passed: controls remain non-interactive until React handlers are attached |
 
 ## G01-G21 acceptance matrix
 
@@ -91,6 +93,9 @@ npm run verify
   the PMS, payer, and authorization evidence; Deny created no write; re-proposal
   restored Allow once; approval produced a receipt; and the dashboard approval
   count changed from 4 to 3.
+- The final public dashboard was opened again after version 17 deployment and
+  visually inspected at the production URL; the mode badges reported synthetic
+  healthcare data, local healthcare, live BFF, and no live payer writes.
 
 ## Residual non-blocking risks
 

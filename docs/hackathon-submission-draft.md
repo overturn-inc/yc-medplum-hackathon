@@ -105,3 +105,19 @@ deployed version passed three consecutive runs while asserting `Agent: bff`.
 The official form requires email, team name, team member names and emails, phone
 number, hack name and tagline, problem statement, sponsor-technology usage,
 YouTube link, and YouTube view count. The code repository link is optional.
+
+## Final judging-readiness assessment
+
+- **Potential impact:** Strong demo fit. The product reduces biller follow-up work,
+  distinguishes transport rejection from payer denial, keeps evidence and current
+  state claim-scoped, and prevents unapproved external writes.
+- **Effective use of provided technology:** The code has a validated FHIR R4 data
+  model and a fail-closed Medplum adapter, but the public release is not connected
+  to a live Medplum project. Stedi is represented only at the synthetic 837P, 277,
+  and 835 boundaries. This is the largest remaining judging weakness.
+- **Cannot be completed autonomously:** A live Medplum connection requires a
+  project plus server-side client credentials supplied by the team. A YouTube
+  upload and the final form also require the team owner's account and personal
+  fields.
+- **Deadline:** Saturday, August 1, 2026. Submissions close at 5:00pm PT;
+  presentations begin at 6:00pm PT and awards are at 7:00pm PT.
