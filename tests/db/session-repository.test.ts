@@ -582,6 +582,33 @@ describe("D1 transactional durability (repair-v3)", () => {
     expect(replayed?.transportState).toBe("clearinghouse_received");
   });
 
+  it("Claim B uses one reservation key through durable completion", async () => {
+    const sqlite = openSqliteDatabase(":memory:");
+    const db = createSqliteD1Database(sqlite);
+    const sessionId = `d1-claim-b-${Math.random().toString(36).slice(2)}`;
+    const repo = new D1SessionRepository(sessionId, db);
+    await repo.getSnapshot();
+
+    const result = await new ActionService(repo).refreshPayerStatus("episode-claim-b");
+    expect(result.receiptId).toBeTruthy();
+    expect(result.idempotent).toBe(false);
+
+    const reservation = sqlite
+      .prepare(
+        `SELECT status, receipt_id FROM action_reservations
+         WHERE session_id = ? AND action_type = 'refresh_payer_status'`,
+      )
+      .get(sessionId) as { status: string; receipt_id: string | null };
+    expect(reservation.status).toBe("completed");
+    expect(reservation.receipt_id).toBe(result.receiptId);
+
+    const fresh = new D1SessionRepository(sessionId, createSqliteD1Database(sqlite));
+    const claim = await fresh.getEpisode("episode-claim-b");
+    expect(claim?.revision).toBe(2);
+    expect(claim?.statusRefreshReceiptId).toBe(result.receiptId);
+    expect(claim?.adjudicationState).toBe("accepted_for_processing");
+  });
+
   it("normal reads never write sessions.snapshot_json", async () => {
     const sqlite = openSqliteDatabase(":memory:");
     let sessionWrites = 0;

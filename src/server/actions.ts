@@ -733,10 +733,10 @@ export class ActionService {
         );
       }
 
-      const reservationKey = `refresh-payer-status:${episodeId}:${episode.revision}`;
+      const idempotencyKey = `refresh_payer_status:${episodeId}:${episode.revision}`;
       if (this.store.reserveAction) {
         const reservation = await this.store.reserveAction({
-          clientRequestId: reservationKey,
+          clientRequestId: idempotencyKey,
           episodeId,
           actionType: "refresh_payer_status",
         });
@@ -755,7 +755,6 @@ export class ActionService {
         }
       }
 
-      const idempotencyKey = `refresh_payer_status:${episodeId}:${episode.revision}`;
       const agentResult = await this.agent.executeApprovedAction({
         actionType: "refresh_payer_status",
         episodeId: episode.id,
