@@ -1,0 +1,45 @@
+{
+  "name": "yc-medplum-hackathon",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "validate:fhir": "vitest run --config vitest.config.ts tests/fhir",
+    "test:unit": "vitest run --config vitest.config.ts tests/unit",
+    "test:contract": "vitest run --config vitest.config.ts tests/contract",
+    "test:replay": "vitest run --config vitest.config.ts tests/replay",
+    "test:e2e": "playwright test",
+    "test:secrets": "tsx scripts/secret-scan.ts",
+    "verify": "npm run typecheck && npm run lint && npm run validate:fhir && npm run test:unit && npm run test:contract && npm run test:replay && npm run build && npm run test:e2e && npm run test:secrets",
+    "seed:medplum": "tsx scripts/seed-medplum.ts",
+    "test:medplum": "vitest run --config vitest.config.ts tests/medplum"
+  },
+  "dependencies": {
+    "@medplum/core": "5.1.27",
+    "@medplum/definitions": "5.1.27",
+    "@medplum/fhirtypes": "5.1.27",
+    "next": "16.0.7",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
+    "@playwright/test": "1.61.0",
+    "@types/node": "^22.18.1",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "eslint": "^9.35.0",
+    "eslint-config-next": "16.0.7",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^4.0.5"
+  }
+}

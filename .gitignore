@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.next/
+dist/
+coverage/
+test-results/
+playwright-report/
+var/
+.playwright-data-*/
+*.tsbuildinfo
