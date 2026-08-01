@@ -58,38 +58,41 @@ export function AppShell({
         className={`sidebar ${navigationOpen ? "sidebar-open" : ""}`}
         aria-label="Primary"
       >
-        <div className="brand">
-          <strong>Harborview PMS</strong>
-          <span>Agent-native billing workspace</span>
-          <span>Powered by Overturn</span>
+        <div className="sidebar-scroll" data-testid="sidebar-scroll">
+          <div className="brand">
+            <strong>Harborview PMS</strong>
+            <span>Agent-native billing workspace</span>
+            <span>Powered by Overturn</span>
+          </div>
+          <div className="nav-section-label">Workspace</div>
+          <ul className="nav-list">
+            {NAV.slice(0, 3).map((item) => (
+              <li key={item.label}>
+                <Link
+                  href={item.href}
+                  prefetch={false}
+                  aria-current={pathname.startsWith(item.href) ? "page" : undefined}
+                  onClick={() => setNavigationOpen(false)}
+                >
+                  <span aria-hidden className="nav-marker" />
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="nav-section-label nav-section-spaced">Not in this demo</div>
+          <ul className="nav-list">
+            {NAV.slice(3).map((item) => (
+              <li key={item.label}>
+                <span className="disabled" aria-disabled="true" title="Coming soon">
+                  {item.label}
+                  <small>Soon</small>
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
-        <div className="nav-section-label">Workspace</div>
-        <ul className="nav-list">
-          {NAV.slice(0, 3).map((item) => (
-            <li key={item.label}>
-              <Link
-                href={item.href}
-                aria-current={pathname.startsWith(item.href) ? "page" : undefined}
-                onClick={() => setNavigationOpen(false)}
-              >
-                <span aria-hidden className="nav-marker" />
-                {item.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
-        <div className="nav-section-label nav-section-spaced">Not in this demo</div>
-        <ul className="nav-list">
-          {NAV.slice(3).map((item) => (
-            <li key={item.label}>
-              <span className="disabled" aria-disabled="true" title="Coming soon">
-                {item.label}
-                <small>Soon</small>
-              </span>
-            </li>
-          ))}
-        </ul>
-        <div className="sidebar-session">
+        <div className="sidebar-session" data-testid="sidebar-session">
           <span aria-hidden className="status-dot" /> Demo session · synthetic
         </div>
       </aside>

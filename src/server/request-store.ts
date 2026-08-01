@@ -7,6 +7,7 @@
  * tests use the in-memory (optionally disk-mirrored) repository.
  */
 import { cookies } from "next/headers";
+import { cache } from "react";
 import {
   createSessionRepository,
   type SessionRepository,
@@ -38,10 +39,23 @@ export async function storeFromRequest(
  * back to a fresh ephemeral (non-cookie-persisted) session if it's somehow
  * missing, rather than sharing one global store across visitors.
  */
-export async function storeFromCookies(
+async function resolveStoreFromCookies(
   options?: StoreOptions,
 ): Promise<SessionRepository> {
   const jar = await cookies();
   const sessionId = jar.get(SESSION_COOKIE_NAME)?.value ?? crypto.randomUUID();
   return createSessionRepository(sessionId, options);
+}
+
+const defaultStoreFromCookies = cache(() => resolveStoreFromCookies());
+
+export async function storeFromCookies(
+  options?: StoreOptions,
+): Promise<SessionRepository> {
+  // Layout and page Server Components render in the same request. Reuse one
+  // repository instance there so D1 initialization and snapshot reads are not
+  // repeated. Explicit test/adapter options intentionally bypass this cache.
+  return options
+    ? resolveStoreFromCookies(options)
+    : defaultStoreFromCookies();
 }

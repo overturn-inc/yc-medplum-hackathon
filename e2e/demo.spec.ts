@@ -273,6 +273,39 @@ test.describe("Harborview PMS demo journeys", () => {
     await page.keyboard.press("Tab");
   });
 
+  test("short viewport keeps sidebar session visible and actions show progress immediately", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 500 });
+    await page.goto("/dashboard");
+
+    const before = await page.getByTestId("sidebar-session").boundingBox();
+    expect(before).not.toBeNull();
+    expect(before!.y + before!.height).toBeLessThanOrEqual(500);
+
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.getByTestId("sidebar-scroll").evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    const after = await page.getByTestId("sidebar-session").boundingBox();
+    expect(after).not.toBeNull();
+    expect(after!.y).toBeCloseTo(before!.y, 0);
+    expect(after!.y + after!.height).toBeLessThanOrEqual(500);
+
+    await page.goto("/claims/episode-claim-d");
+    await page.route("**/api/approvals", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      await route.continue();
+    });
+    await page.getByTestId("allow-once").click();
+    await expect(page.getByTestId("approval-pending")).toContainText(
+      "Executing the approved action",
+    );
+    await expect(page.getByTestId("approval-message")).toContainText(
+      /Corrected|resubmit/i,
+    );
+  });
+
   test("two browser contexts stay session-isolated", async ({ browser }) => {
     const first = await browser.newContext();
     const second = await browser.newContext();

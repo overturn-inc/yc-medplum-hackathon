@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import type { AgentProposal } from "@/domain/types";
 import type { ProposableActionType } from "@/domain/action-types";
 import type { PreflightCheck } from "@/domain/preflight";
@@ -40,7 +40,8 @@ export function ApprovalControls({
   canRepropose?: boolean;
 }) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const [busy, setBusy] = useState<"allow_once" | "deny" | "repropose" | null>(null);
+  const pending = busy !== null;
   const [message, setMessage] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     return sessionStorage.getItem(MESSAGE_KEY);
@@ -58,10 +59,11 @@ export function ApprovalControls({
   }, [message]);
 
   async function decide(decision: "allow_once" | "deny") {
-    if (!proposal) return;
+    if (!proposal || pending) return;
     setError(null);
     setMessage(null);
-    startTransition(async () => {
+    setBusy(decision);
+    try {
       const response = await fetch("/api/approvals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -96,13 +98,19 @@ export function ApprovalControls({
       setMessage(nextMessage);
       setConsumedFingerprint(proposal.fingerprint);
       router.refresh();
-    });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Request failed");
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function repropose() {
+    if (pending) return;
     setError(null);
     setMessage(null);
-    startTransition(async () => {
+    setBusy("repropose");
+    try {
       const response = await fetch("/api/proposals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -117,7 +125,13 @@ export function ApprovalControls({
       sessionStorage.setItem(MESSAGE_KEY, nextMessage);
       setMessage(nextMessage);
       router.refresh();
-    });
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Could not create a new proposal",
+      );
+    } finally {
+      setBusy(null);
+    }
   }
 
   if (!visibleProposal && !canRepropose && !message && !error) {
@@ -154,7 +168,7 @@ export function ApprovalControls({
               onClick={() => decide("deny")}
               data-testid="deny-action"
             >
-              Deny
+              {busy === "deny" ? "Denying…" : "Deny"}
             </button>
             <button
               type="button"
@@ -163,7 +177,7 @@ export function ApprovalControls({
               onClick={() => decide("allow_once")}
               data-testid="allow-once"
             >
-              Allow once
+              {busy === "allow_once" ? "Executing…" : "Allow once"}
             </button>
           </div>
         </>
@@ -177,10 +191,19 @@ export function ApprovalControls({
               onClick={repropose}
               data-testid="repropose-action"
             >
-              Re-propose
+              {busy === "repropose" ? "Preparing…" : "Re-propose"}
             </button>
           </div>
         )
+      )}
+      {pending && (
+        <p className="pending-callout" role="status" data-testid="approval-pending">
+          {busy === "allow_once"
+            ? "Executing the approved action and verifying the resulting state…"
+            : busy === "deny"
+              ? "Recording the denial without performing an external write…"
+              : "Preparing a fresh proposal for review…"}
+        </p>
       )}
       {message && (
         <p data-testid="approval-message" className="success-callout">

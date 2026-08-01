@@ -19,7 +19,7 @@ export default async function ClaimDetailPage({
   return (
     <main className="page claim-detail-page" data-testid="claim-detail-page">
       <div className="breadcrumb-row">
-        <Link href="/claims" className="btn btn-quiet">← Claims</Link>
+        <Link href="/claims" prefetch={false} className="btn btn-quiet">← Claims</Link>
         <span className="mono">/claims/{id}</span>
       </div>
       <ClaimWorkbench

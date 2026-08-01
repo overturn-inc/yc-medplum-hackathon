@@ -56,6 +56,7 @@ export default async function DashboardPage() {
             key={item.key}
             className={`kpi-card kpi-${item.tone}`}
             href={item.href}
+            prefetch={false}
             data-testid={item.testId}
           >
             <span>{item.label}</span>
@@ -80,7 +81,7 @@ export default async function DashboardPage() {
                 const episode = byId.get(row.episodeId);
                 return (
                   <li key={row.episodeId}>
-                    <Link href={row.href}>
+                    <Link href={row.href} prefetch={false}>
                       <span className="queue-person">
                         <strong>{row.patientName}</strong>
                         <small className="mono">{episode?.claimId ?? "No claim yet"}</small>
@@ -111,7 +112,7 @@ export default async function DashboardPage() {
                 const episode = byId.get(row.episodeId);
                 return (
                   <li key={`${row.episodeId}-${row.title}`}>
-                    <Link href={row.href}>
+                    <Link href={row.href} prefetch={false}>
                       <span className="queue-person">
                         <strong>{row.patientName}</strong>
                         <small className="mono">{episode?.claimId ?? "No claim"}</small>
@@ -144,7 +145,7 @@ export default async function DashboardPage() {
               {Object.entries(kpi.funnel).map(([key, value]) => (
                 <li key={key} className={value === 0 ? "is-zero" : ""}>
                   {value === 0 ? <div><span>{FUNNEL_LABELS[key] ?? key}</span><strong data-testid={`funnel-${key}`}>{value}</strong></div> : (
-                    <Link href={`/claims?filter=${key}`}><span>{FUNNEL_LABELS[key] ?? key}</span><strong data-testid={`funnel-${key}`}>{value}</strong></Link>
+                    <Link href={`/claims?filter=${key}`} prefetch={false}><span>{FUNNEL_LABELS[key] ?? key}</span><strong data-testid={`funnel-${key}`}>{value}</strong></Link>
                   )}
                 </li>
               ))}
@@ -156,7 +157,7 @@ export default async function DashboardPage() {
             <ul className="overlay-list" data-testid="overlay-list">
               {Object.entries(kpi.overlays).map(([key, value]) => (
                 <li key={key}>
-                  <Link href={`/claims?filter=${key}`}>
+                  <Link href={`/claims?filter=${key}`} prefetch={false}>
                     <span>{OVERLAY_LABELS[key] ?? key}</span>
                     <strong data-testid={`overlay-${key}`}>{value}</strong>
                   </Link>

@@ -224,7 +224,7 @@ export function ClaimsTable({ rows, initialFilter = "all" }: { rows: ClaimRow[];
       <div className="claim-cards" aria-label="Claims">
         {filtered.map((row) => (
           <article key={row.id} className="claim-card">
-            <Link href={`/claims/${row.id}`} aria-label={`Open ${row.patientName} claim workbench`}>
+            <Link href={`/claims/${row.id}`} prefetch={false} aria-label={`Open ${row.patientName} claim workbench`}>
               <header><div><strong>{row.patientName}</strong><small className="mono">{row.claimId ?? "No claim yet"}</small></div><div className="money">${row.billedAmount.toFixed(2)}<small>billed</small></div></header>
               <div><span className={`status-pill ${statusTone(row.primaryBucket)}`}>{humanBucket(row.primaryBucket)}</span> <small>Reported by {statusSource(row.primaryBucket)}</small></div>
               <RowFlags row={row} />
@@ -269,7 +269,7 @@ export function EncountersTable({ rows }: { rows: EncounterRow[] }) {
           <thead><tr><th>Patient</th><th>DOS</th><th>Provider</th><th>Coverage</th><th>Note</th><th>Coding</th><th>Charge</th><th>Billing state</th></tr></thead>
           <tbody>{filtered.map((row) => (
             <tr key={row.id} className={row.fixtureKey === "encounter-a" ? "selected-row" : ""}>
-              <td><Link href={row.fixtureKey === "encounter-a" ? `/encounters?focus=${row.id}` : `/claims/${row.id}`}><strong>{row.patientName}</strong><small>{row.fixtureKey === "encounter-a" ? "Selected · note signed" : "Note signed"}</small></Link></td>
+              <td><Link href={row.fixtureKey === "encounter-a" ? `/encounters?focus=${row.id}` : `/claims/${row.id}`} prefetch={false}><strong>{row.patientName}</strong><small>{row.fixtureKey === "encounter-a" ? "Selected · note signed" : "Note signed"}</small></Link></td>
               <td>{row.dateOfService}</td><td>{row.providerName}</td><td>{row.coverageActive ? "Active" : "Inactive"}</td><td>{row.noteState === "final" ? "Signed, final" : "Draft"}</td><td>{row.codingReady ? "Ready" : "Blocked"}</td><td className="money">${row.billedAmount.toFixed(2)}</td><td><span className={`status-pill ${row.chargeState === "ready" ? "status-ready" : "status-neutral"}`}>{row.chargeState === "ready" ? "Ready to bill" : "Claim created"}</span></td>
             </tr>
           ))}</tbody>

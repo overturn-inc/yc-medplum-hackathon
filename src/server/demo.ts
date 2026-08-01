@@ -1,4 +1,5 @@
 import { createBffAgentAdapter, sanitizeBffError } from "@/adapters/agent/bff";
+import { cache } from "react";
 import { createSyntheticAgentAdapter } from "@/adapters/agent/synthetic";
 import { createLocalHealthcareRepository } from "@/adapters/healthcare/local";
 import {
@@ -17,6 +18,31 @@ import { ActionService } from "@/server/actions";
 import { loadServerConfig, publicAdapterStatus } from "@/server/config";
 import { StoreDegradedError } from "@/server/store";
 import type { SessionRepository } from "@/server/repository";
+
+type AgentStatus = { available: boolean; error?: string };
+
+const probeBffForRender = cache(
+  async (baseUrl: string, apiKey: string): Promise<AgentStatus> => {
+    const agent = createBffAgentAdapter({ baseUrl, apiKey });
+    return agent.probe
+      ? agent.probe()
+      : { available: false, error: "BFF probe unavailable" };
+  },
+);
+
+async function getAgentStatusForRender(): Promise<AgentStatus> {
+  const result = await probeBffForRender(
+    process.env.BFF_BASE_URL || "https://bff.example",
+    process.env.BFF_API_KEY || "missing",
+  );
+  if (result.available) return result;
+  return {
+    available: false,
+    error: sanitizeBffError(
+      new Error(result.error ?? "BFF unavailable"),
+    ).message,
+  };
+}
 
 export async function getDemoRuntime(store: SessionRepository) {
   try {
@@ -105,7 +131,7 @@ function stripBffProposals(
   }));
 }
 
-export async function getDemoViewModel(store: SessionRepository) {
+const buildDemoViewModel = async (store: SessionRepository) => {
   const runtime = await getDemoRuntime(store);
 
   try {
@@ -122,21 +148,11 @@ export async function getDemoViewModel(store: SessionRepository) {
     // continue
   }
 
-  let agentStatus: { available: boolean; error?: string } = {
+  let agentStatus: AgentStatus = {
     available: true,
   };
   if (runtime.config.agentMode === "bff") {
-    agentStatus = runtime.agent.probe
-      ? await runtime.agent.probe()
-      : { available: false, error: "BFF probe unavailable" };
-    if (!agentStatus.available) {
-      agentStatus = {
-        available: false,
-        error: sanitizeBffError(
-          new Error(agentStatus.error ?? "BFF unavailable"),
-        ).message,
-      };
-    }
+    agentStatus = await getAgentStatusForRender();
   }
 
   let snapshot: DemoSnapshot;
@@ -199,7 +215,9 @@ export async function getDemoViewModel(store: SessionRepository) {
     agentStatus,
     dataSource: runtime.healthcare.mode === "medplum" ? "medplum" : "local",
   };
-}
+};
+
+export const getDemoViewModel = cache(buildDemoViewModel);
 
 export async function getEpisodeView(episodeId: string, store: SessionRepository) {
   const runtime = await getDemoRuntime(store);
@@ -224,9 +242,7 @@ export async function getEpisodeView(episodeId: string, store: SessionRepository
   if (!episode) return null;
 
   if (runtime.config.agentMode === "bff") {
-    const status = runtime.agent.probe
-      ? await runtime.agent.probe()
-      : { available: false, error: "BFF probe unavailable" };
+    const status = await getAgentStatusForRender();
     if (!status.available) {
       episode = {
         ...episode,
