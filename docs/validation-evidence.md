@@ -1,15 +1,15 @@
 # Validation evidence
 
-Validated: 2026-08-01 11:27 PDT (public release)
+Validated: 2026-08-01 12:03 PDT (public release)
 
 Final verdict: **PASS** after the final Claude Design implementation, local aggregate
-gate, successful Sites deployment, public visual inspection, and three consecutive
-public mutation E2E runs.
+gate, successful Sites deployment, public visual inspection, three earlier public
+mutation E2E runs, and a final full live run against release 20.
 
 Public release: https://overturn-agentic-claims.argentum1450.chatgpt.site
 
-Public Sites release: version 17 from runtime commit
-`d77faa3dc5a1a8df5855240b215993b0a411844c`.
+Public Sites release: version 20 from runtime commit
+`21a949acd983084b107fe29a2e373ac6de3e3215`.
 
 ## Aggregate gate
 
@@ -35,18 +35,20 @@ npm run verify
 | ESLint | Passed |
 | FHIR validation | Passed (3) |
 | Unit tests | Passed (36) |
-| Contract tests | Passed (37) |
+| Contract tests | Passed (38) |
 | Replay tests | Passed (3) |
 | Database / session / D1 tests | Passed (19) |
 | Next.js production build (`build:next`) | Passed |
-| Chromium E2E | Passed (15; includes BFF project) |
+| Chromium E2E | Passed (17; includes BFF project) |
 | vinext Sites build (`build:sites`) | Passed (`dist/server/index.js`) |
 | package-site.sh archive | Passed |
 | Secret canary | Passed |
 | Public anonymous HTTP | Passed (200) |
-| Public mutation E2E | Passed three consecutive full runs with required `Agent: bff` on version 17 |
+| Public mutation E2E | Passed a final full run with required `Agent: bff` on version 20; three earlier full runs also passed |
 | Public browser inspection | Passed: final dashboard rendered with all mode badges, KPI, queues, funnel, flags, and safety boundary |
 | Pre-hydration interaction safety | Passed: controls remain non-interactive until React handlers are attached |
+| Short viewport sidebar | Passed at 1280x500: session footer remained at y=455 before and after page scroll |
+| Public navigation performance | Overview → Claims 821ms; Claims → detail 844ms; idle RSC prefetch requests 0 |
 
 ## G01-G21 acceptance matrix
 
@@ -84,8 +86,8 @@ npm run verify
   failures remain visible and there is no silent conversational fallback.
 - No claim of live Stedi, live Medplum credentials, or live payer writes.
 - `LIVE_BASE_URL=https://overturn-agentic-claims.argentum1450.chatgpt.site
-  LIVE_EXPECT_AGENT_MODE=bff npm run test:e2e:live` passed three consecutive full
-  runs. The runs covered Encounter A submission, Claim B refresh, Claim C deny,
+  LIVE_EXPECT_AGENT_MODE=bff npm run test:e2e:live` passed the final release-20
+  run after three earlier full runs. The runs covered Encounter A submission, Claim B refresh, Claim C deny,
   re-propose and allow, Claim D correction, Claim E documentation, Claim F's
   unsafe-action refusal and absence of a proposal, dashboard persistence, two
   browser sessions, reset, and current-state answers after actions.
@@ -93,9 +95,12 @@ npm run verify
   the PMS, payer, and authorization evidence; Deny created no write; re-proposal
   restored Allow once; approval produced a receipt; and the dashboard approval
   count changed from 4 to 3.
-- The final public dashboard was opened again after version 17 deployment and
+- The final public dashboard was opened again after version 20 deployment and
   visually inspected at the production URL; the mode badges reported synthetic
-  healthcare data, local healthcare, live BFF, and no live payer writes.
+  healthcare data, local healthcare, BFF mode, and no live payer writes.
+- Public page rendering no longer synchronously probes BFF readiness. The remote
+  boundary is checked by chat and approval requests, where failures remain visible
+  and approved actions fail closed without synthetic fallback.
 
 ## Residual non-blocking risks
 
