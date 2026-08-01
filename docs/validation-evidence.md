@@ -24,8 +24,8 @@ npm run test:db
 npm run build:next
 npm run test:e2e
 npm run build:sites
-bash /Users/jeonhwichan/.codex/plugins/cache/openai-bundled/sites/0.1.33/skills/sites-hosting/scripts/package-site.sh . /private/tmp/overturn-sites-repair.tar.gz
 npm run test:secrets
+npm run test:public
 npm run verify
 ```
 

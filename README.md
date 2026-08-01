@@ -35,6 +35,24 @@ readiness and chat intent only. It never becomes the proof of a healthcare write
 Copy `.env.example` to `.env` for local overrides. Credentials are **server-only**.
 Never use `NEXT_PUBLIC_` for secrets.
 
+## Public repository safety
+
+- `.env*`, `.dev.vars*`, private keys, certificates, and common credential files
+  are ignored. Only the empty-value `.env.example` template is committed.
+- Configure Medplum, BFF, and hosting credentials in the deployment platform's
+  encrypted environment or secret store. Do not add them to `wrangler.jsonc`.
+- `npm run test:public` audits tracked files for credential-shaped values,
+  private keys, absolute workstation paths, and unsafe symlinks.
+- All included patient, payer, claim, remittance, and posting data is synthetic.
+
+The application does not need a Medplum source checkout. Contributors who want
+to inspect Medplum internals may create an ignored local link:
+
+```bash
+git clone https://github.com/medplum/medplum.git ../medplum
+ln -s ../medplum medplum-link
+```
+
 ## 5-minute demo
 
 1. **Dashboard** — seven synthetic cases, synthetic/no-live-write badges, KPI and queues.
@@ -62,6 +80,7 @@ npm run build:next
 npm run test:e2e
 npm run build:sites
 npm run test:secrets
+npm run test:public
 npm run verify
 ```
 

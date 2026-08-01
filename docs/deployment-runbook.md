@@ -21,7 +21,6 @@ Deployable Worker build (vinext + Cloudflare Vite plugin):
 
 ```bash
 npm run build:sites
-bash /Users/jeonhwichan/.codex/plugins/cache/openai-bundled/sites/0.1.33/skills/sites-hosting/scripts/package-site.sh . /private/tmp/overturn-sites-release.tar.gz
 ```
 
 Required artifacts:
@@ -47,9 +46,9 @@ payer, or Stedi writes on the public path.
 
 Current public release: https://overturn-agentic-claims.argentum1450.chatgpt.site
 
-Validated public release: Sites version 13 from runtime commit
-`706b9ba4410d8dbb41ff9920266bb17051780cdb`; the full live mutation E2E passed
-three consecutive runs with the `Agent: bff` assertion on 2026-08-01.
+Validated public release: Sites version 20 from runtime commit
+`21a949acd983084b107fe29a2e373ac6de3e3215`; the full live mutation E2E passed
+with the `Agent: bff` assertion on 2026-08-01.
 
 ## Connected adapters (optional)
 

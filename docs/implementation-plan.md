@@ -289,10 +289,10 @@ Stop and request user direction if implementation requires:
 
 Do not modify these sibling products:
 
-- `/Users/jeonhwichan/Documents/projects/overturn/app`
-- `/Users/jeonhwichan/Documents/projects/overturn/desktop`
-- `/Users/jeonhwichan/Documents/projects/breakfastfactory`
-- `/Users/jeonhwichan/Documents/projects/clones/medplum`
+- Overturn app
+- Overturn desktop
+- Breakfast Factory
+- A separate local Medplum source checkout
 - Interview source directories and images
 
 Only the hackathon directory is writable for generation.

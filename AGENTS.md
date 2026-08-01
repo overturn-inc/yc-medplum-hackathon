@@ -2,8 +2,11 @@
 
 ## Source of truth
 
-- Medplum source and docs are linked at `medplum-link/`.
-- Read the relevant file under `medplum-link/packages/docs/docs/` before implementing a Medplum or FHIR behavior.
+- Medplum packages are installed from npm. For source-level research, clone the
+  public Medplum repository separately and create an ignored local
+  `medplum-link` symlink as described in `README.md`.
+- Read the relevant official Medplum documentation before implementing a
+  Medplum or FHIR behavior.
 - Use FHIR R4 only and type resources with `@medplum/fhirtypes`.
 - Do not invent FHIR fields, search parameters, profiles, extensions, or medical codes.
 

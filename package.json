@@ -21,7 +21,8 @@
     "test:e2e": "playwright test",
     "test:e2e:live": "tsx scripts/live-e2e.ts",
     "test:secrets": "tsx scripts/secret-scan.ts",
-    "verify": "npm run typecheck && npm run lint && npm run validate:fhir && npm run test:unit && npm run test:contract && npm run test:replay && npm run test:db && npm run build:next && npm run test:e2e && npm run build:sites && npm run test:secrets",
+    "test:public": "tsx scripts/public-repo-audit.ts",
+    "verify": "npm run typecheck && npm run lint && npm run validate:fhir && npm run test:unit && npm run test:contract && npm run test:replay && npm run test:db && npm run test:public && npm run build:next && npm run test:e2e && npm run build:sites && npm run test:secrets",
     "db:generate": "drizzle-kit generate",
     "seed:medplum": "tsx scripts/seed-medplum.ts",
     "test:medplum": "vitest run --config vitest.config.ts tests/medplum"
