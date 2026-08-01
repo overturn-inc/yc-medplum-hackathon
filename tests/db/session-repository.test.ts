@@ -11,8 +11,10 @@ import { createSessionRepository } from "@/server/repository";
 import { parseDomainEvent } from "@/domain/schemas";
 import {
   D1SessionRepository,
+  getD1SessionRepository,
   type D1DatabaseLike,
   type D1PreparedStatement,
+  type D1SessionLike,
   type D1WriteResult,
 } from "@/server/d1-repository";
 import {
@@ -632,5 +634,131 @@ describe("D1 transactional durability (repair-v3)", () => {
     const reloaded = new D1SessionRepository(sessionId, createSqliteD1Database(sqlite));
     await expect(reloaded.getSnapshot()).rejects.toBeInstanceOf(StoreDegradedError);
     expect(reloaded.getDegraded()).toBeTruthy();
+  });
+
+  it("requests withSession('first-primary') and routes all ledger I/O through that session", async () => {
+    const sqlite = openSqliteDatabase(":memory:");
+    const underlying = createSqliteD1Database(sqlite);
+    const sessionConstraints: string[] = [];
+    let sessionPrepare = 0;
+    let sessionBatch = 0;
+    let basePrepare = 0;
+    let baseBatch = 0;
+
+    const sessionHandle: D1SessionLike = {
+      prepare(query: string) {
+        sessionPrepare += 1;
+        return underlying.prepare(query);
+      },
+      async batch(statements: D1PreparedStatement[]) {
+        sessionBatch += 1;
+        return underlying.batch(statements);
+      },
+      getBookmark() {
+        return "test-bookmark";
+      },
+    };
+
+    const binding: D1DatabaseLike = {
+      prepare(query: string) {
+        basePrepare += 1;
+        return underlying.prepare(query);
+      },
+      async batch(statements: D1PreparedStatement[]) {
+        baseBatch += 1;
+        return underlying.batch(statements);
+      },
+      withSession(constraint) {
+        sessionConstraints.push(String(constraint ?? "first-unconstrained"));
+        return sessionHandle;
+      },
+    };
+
+    const sessionId = `d1-session-api-${Math.random().toString(36).slice(2)}`;
+    const repo = getD1SessionRepository(sessionId, binding);
+    await repo.getSnapshot();
+    expect(sessionConstraints).toEqual(["first-primary"]);
+    expect(sessionPrepare).toBeGreaterThan(0);
+    expect(sessionBatch).toBeGreaterThan(0);
+    expect(basePrepare).toBe(0);
+    expect(baseBatch).toBe(0);
+
+    const prepareAfterSeed = sessionPrepare;
+    const batchAfterSeed = sessionBatch;
+    const actions = new ActionService(repo);
+    const episode = await repo.getEpisode(ENCOUNTER_A);
+    const decided = await actions.decide({
+      episodeId: ENCOUNTER_A,
+      actionType: "submit_claim",
+      decision: "allow_once",
+      scope: proposalApprovalFields(episode!.proposal!),
+    });
+    expect(decided.receiptId).toBe(RECEIPT_A);
+    expect(sessionPrepare).toBeGreaterThan(prepareAfterSeed);
+    expect(sessionBatch).toBeGreaterThan(batchAfterSeed);
+    expect(basePrepare).toBe(0);
+    expect(baseBatch).toBe(0);
+
+    // A fresh repository in another isolate must open its own first-primary.
+    const fresh = getD1SessionRepository(sessionId, binding);
+    await fresh.getEpisode(ENCOUNTER_A);
+    expect(sessionConstraints).toEqual(["first-primary", "first-primary"]);
+    expect(basePrepare).toBe(0);
+    expect(baseBatch).toBe(0);
+  });
+
+  it("commit failure refreshes first-primary rather than falling back to the base binding", async () => {
+    const sqlite = openSqliteDatabase(":memory:");
+    const underlying = createSqliteD1Database(sqlite);
+    const sessionId = `d1-refresh-${Math.random().toString(36).slice(2)}`;
+    await new D1SessionRepository(sessionId, underlying).getSnapshot();
+
+    const sessionConstraints: string[] = [];
+    let sessionHandles = 0;
+    let armed = false;
+
+    const makeSession = (): D1SessionLike => {
+      sessionHandles += 1;
+      return {
+        prepare(query: string) {
+          return underlying.prepare(query);
+        },
+        async batch(statements: D1PreparedStatement[]) {
+          if (armed) {
+            // Force a commit failure so the repository must refresh the session.
+            return statements.map(() => ({ success: false, meta: { changes: 0 } }));
+          }
+          return underlying.batch(statements);
+        },
+      };
+    };
+
+    const binding: D1DatabaseLike = {
+      prepare() {
+        throw new Error("base binding prepare must not be used when withSession exists");
+      },
+      async batch() {
+        throw new Error("base binding batch must not be used when withSession exists");
+      },
+      withSession(constraint) {
+        sessionConstraints.push(String(constraint));
+        return makeSession();
+      },
+    };
+
+    const repo = new D1SessionRepository(sessionId, binding);
+    await repo.getSnapshot();
+    expect(sessionConstraints).toEqual(["first-primary"]);
+    expect(sessionHandles).toBe(1);
+
+    armed = true;
+    await repo.beginMutation();
+    const episode = (await repo.getEpisode(ENCOUNTER_A))!;
+    repo.replaceEpisode({ ...episode, revision: episode.revision + 1 });
+    await expect(repo.commit()).rejects.toBeInstanceOf(StorePersistenceError);
+
+    // Failure path must open a new first-primary session for reload.
+    expect(sessionConstraints).toEqual(["first-primary", "first-primary"]);
+    expect(sessionHandles).toBe(2);
   });
 });

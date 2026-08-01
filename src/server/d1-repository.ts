@@ -47,22 +47,38 @@ export interface D1WriteResult {
   results?: unknown[];
 }
 
+/**
+ * D1 Sessions API handle (`db.withSession(...)`). Exposes the prepare/batch
+ * surface used by this repository. Optional `getBookmark` matches the Workers
+ * binding but is unused here — each repository prefers a fresh first-primary.
+ */
+export interface D1SessionLike {
+  prepare(query: string): D1PreparedStatement;
+  batch(statements: D1PreparedStatement[]): Promise<D1WriteResult[]>;
+  getBookmark?(): string | null;
+}
+
+/** Constraint / bookmark accepted by `D1Database.withSession`. */
+export type D1SessionConstraint = "first-primary" | "first-unconstrained" | (string & {});
+
+/**
+ * Minimal D1 database binding. When `withSession` is present (Workers runtime
+ * with Sessions API), the repository must open `first-primary` and route every
+ * ledger read/write through that session. Local test doubles may omit it.
+ */
 export interface D1DatabaseLike {
   prepare(query: string): D1PreparedStatement;
   batch(statements: D1PreparedStatement[]): Promise<D1WriteResult[]>;
   exec?(query: string): Promise<unknown>;
+  withSession?(constraintOrBookmark?: D1SessionConstraint): D1SessionLike;
 }
 
-type GlobalD1Registry = {
-  __harborviewD1SessionRegistry?: Map<string, D1SessionRepository>;
-};
-
-function d1Registry(): Map<string, D1SessionRepository> {
-  const g = globalThis as unknown as GlobalD1Registry;
-  if (!g.__harborviewD1SessionRegistry) {
-    g.__harborviewD1SessionRegistry = new Map();
+/** Open a first-primary session when the Sessions API is available. */
+export function openD1PrimarySession(binding: D1DatabaseLike): D1SessionLike {
+  if (typeof binding.withSession === "function") {
+    return binding.withSession("first-primary");
   }
-  return g.__harborviewD1SessionRegistry;
+  return binding;
 }
 
 /** Shared fail-closed assertions for D1 write / batch results. */
@@ -146,7 +162,14 @@ interface PlannedEventRow {
 
 export class D1SessionRepository implements SessionRepository {
   readonly sessionId: string;
-  private readonly db: D1DatabaseLike;
+  /** Original Workers binding (or test double). Kept so failures can open a fresh first-primary. */
+  private readonly binding: D1DatabaseLike;
+  /**
+   * Active D1 handle for every ledger read/write. When Sessions API is
+   * available this is `binding.withSession("first-primary")`; otherwise the
+   * binding itself (local test fallback).
+   */
+  private db: D1SessionLike;
   private readonly healthcareMode: NonNullable<StoreOptions["healthcareMode"]>;
   private readonly agentMode: NonNullable<StoreOptions["agentMode"]>;
   private snapshot: DemoSnapshot;
@@ -169,7 +192,8 @@ export class D1SessionRepository implements SessionRepository {
     options: StoreOptions = {},
   ) {
     this.sessionId = sessionId;
-    this.db = db;
+    this.binding = db;
+    this.db = openD1PrimarySession(db);
     this.healthcareMode = options.healthcareMode ?? "local";
     this.agentMode = options.agentMode ?? "synthetic";
     this.snapshot = createInitialSnapshot({
@@ -183,6 +207,15 @@ export class D1SessionRepository implements SessionRepository {
       .catch((error) => {
         this.snapshot = this.degradedSnapshot(error);
       });
+  }
+
+  /**
+   * After a durable failure, discard the prior session bookmark and open a
+   * new first-primary session. Never fall back to an unconstrained binding
+   * path when Sessions API is available.
+   */
+  private refreshPrimarySession(): void {
+    this.db = openD1PrimarySession(this.binding);
   }
 
   private async ensureReady(): Promise<void> {
@@ -437,6 +470,7 @@ export class D1SessionRepository implements SessionRepository {
         error instanceof StorePersistenceError
       ) {
         // Simultaneous seed: one bounded reload when no external effect occurred.
+        this.refreshPrimarySession();
         try {
           return await this.replayFromLedger();
         } catch {
@@ -465,6 +499,7 @@ export class D1SessionRepository implements SessionRepository {
       return snapshot;
     } catch (error) {
       // Another isolate may have seeded first — one bounded reload only.
+      this.refreshPrimarySession();
       try {
         const existing = await this.replayFromLedger();
         return existing;
@@ -580,6 +615,8 @@ export class D1SessionRepository implements SessionRepository {
     this.dirtyEpisodeIds.clear();
     this.pendingReservationCompletion = null;
     this.mutating = false;
+    // Do not reuse a failed session bookmark or unconstrained binding.
+    this.refreshPrimarySession();
     try {
       this.snapshot = await this.replayFromLedger();
     } catch (reloadError) {
@@ -1031,23 +1068,19 @@ export class D1SessionRepository implements SessionRepository {
   }
 }
 
-/** Returns the Worker-scoped D1 repository for a session, creating on first use. */
+/**
+ * Returns a request-scoped D1 repository. A fresh instance opens a fresh
+ * first-primary D1 session, so an idle Worker isolate never reuses an older
+ * bookmark after another isolate has committed a newer episode projection.
+ * Durable reservations and explicit event sequences provide cross-request
+ * concurrency control; an in-process registry is neither required nor safe.
+ */
 export function getD1SessionRepository(
   sessionId: string,
   db: D1DatabaseLike,
   options?: StoreOptions,
 ): D1SessionRepository {
-  const registry = d1Registry();
-  let repo = registry.get(sessionId);
-  if (!repo) {
-    repo = new D1SessionRepository(sessionId, db, options);
-    registry.set(sessionId, repo);
-  }
-  return repo;
-}
-
-export function resetD1SessionRegistry(): void {
-  d1Registry().clear();
+  return new D1SessionRepository(sessionId, db, options);
 }
 
 /** Helper for tests that need to assert a round-tripped snapshot parses. */
