@@ -126,6 +126,7 @@ npm run test:moss:live
 ## Product docs
 
 - [Product spec](docs/product-spec.md)
+- [Demo scenario v2 and readiness audit](docs/demo-scenario-v2-readiness.md)
 - [Data and agent architecture](docs/data-agent-architecture.md)
 - [Deployment runbook](docs/deployment-runbook.md)
 - [Hackathon submission draft](docs/hackathon-submission-draft.md)
