@@ -106,7 +106,10 @@ export class ActionService {
     await this.store.beginMutation();
     try {
       const snapshot = await this.store.getSnapshot();
-      if (snapshot.agentMode === "bff") {
+      // Block deterministic proposals only when the ActionService execution
+      // adapter itself is the BFF connector. Local+BFF demos keep an
+      // independent synthetic executor so server-built proposals still work.
+      if (snapshot.agentMode === "bff" && this.agent.mode === "bff") {
         throw Object.assign(
           new Error(
             "BFF mode does not expose deterministic local proposals. Agent boundary is unavailable or not probed.",

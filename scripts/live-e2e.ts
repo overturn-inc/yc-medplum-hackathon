@@ -6,6 +6,8 @@
  *
  * Usage:
  *   LIVE_BASE_URL=https://example.example npm run test:e2e:live
+ * Optional:
+ *   LIVE_EXPECT_AGENT_MODE=bff  — assert dashboard badge-agent before mutations
  */
 import { chromium, expect, type Page } from "@playwright/test";
 
@@ -37,6 +39,20 @@ async function assertSyntheticOnly(page: Page) {
   }
 }
 
+async function assertExpectedAgentMode(page: Page) {
+  const expected = process.env.LIVE_EXPECT_AGENT_MODE?.trim();
+  if (!expected) return;
+  const badge = page.getByTestId("badge-agent");
+  await badge.waitFor({ timeout: 30_000 });
+  const text = await badge.innerText();
+  const normalized = text.replace(/^Agent:\s*/i, "").trim();
+  if (normalized !== expected) {
+    throw new Error(
+      `LIVE_EXPECT_AGENT_MODE=${expected} but badge-agent reported: ${text}`,
+    );
+  }
+}
+
 async function waitForApprovalOutcome(page: Page, step: string) {
   const error = page.getByTestId("approval-error");
   await page
@@ -54,6 +70,7 @@ async function main() {
 
   await reset(page);
   await assertSyntheticOnly(page);
+  await assertExpectedAgentMode(page);
 
   console.log("[live] Encounter A submission");
   // Submission (Encounter A)

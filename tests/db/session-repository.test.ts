@@ -788,4 +788,27 @@ describe("D1 transactional durability (repair-v3)", () => {
     expect(sessionConstraints).toEqual(["first-primary", "first-primary"]);
     expect(sessionHandles).toBe(2);
   });
+
+  it("D1 inherits AGENT_MODE=bff from process.env when StoreOptions omit agentMode", async () => {
+    const previous = process.env.AGENT_MODE;
+    process.env.AGENT_MODE = "bff";
+    try {
+      const sqlite = openSqliteDatabase(":memory:");
+      const sessionId = `d1-env-bff-${Math.random().toString(36).slice(2)}`;
+      const repo = new D1SessionRepository(sessionId, createSqliteD1Database(sqlite));
+      const snapshot = await repo.getSnapshot();
+      expect(snapshot.agentMode).toBe("bff");
+      expect(snapshot.healthcareMode).toBe("local");
+
+      // Existing ledger replayed under a later env still adopts current modes.
+      const replayed = new D1SessionRepository(
+        sessionId,
+        createSqliteD1Database(sqlite),
+      );
+      expect((await replayed.getSnapshot()).agentMode).toBe("bff");
+    } finally {
+      if (previous === undefined) delete process.env.AGENT_MODE;
+      else process.env.AGENT_MODE = previous;
+    }
+  });
 });

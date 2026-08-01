@@ -72,9 +72,11 @@ npm run verify
 
 ## Honest boundary
 
-- Default public path is local healthcare + synthetic agent.
+- Public Sites can run local healthcare + BFF conversational agent: BFF classifies
+  chat; grounded answers/proposals remain server-owned; synthetic local connectors
+  still produce demo mutation receipts.
 - Sites deployability is evidenced by `build:sites` + `package-site.sh`, not by schema files alone.
-- Connected BFF/Medplum remain optional; failure is visible; no silent fallback.
+- Connected BFF/Medplum failures are visible; there is no silent conversational fallback.
 - No claim of live Stedi, live Medplum credentials, or live payer writes.
 - `LIVE_BASE_URL=https://overturn-agentic-claims.argentum1450.chatgpt.site npm run test:e2e:live`
   passed three consecutive full runs, followed by an enhanced full run that
@@ -82,6 +84,7 @@ npm run verify
   The runs also covered Encounter A submission, Claim B refresh, Claim C
   reprocessing, Claim D correction, Claim E documentation, dashboard persistence,
   two browser sessions, reset, and current-state answers after actions.
+  Optional `LIVE_EXPECT_AGENT_MODE=bff` asserts the dashboard Agent badge before mutations.
 
 ## Residual non-blocking risks
 

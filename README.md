@@ -28,8 +28,10 @@ Data is synthetic. Anonymous sessions are isolated by an HttpOnly cookie.
 | Healthcare `local` (default) | `HEALTHCARE_MODE=local` | Typed FHIR fixtures + session-scoped event store |
 | Healthcare `medplum` | `HEALTHCARE_MODE=medplum` + `MEDPLUM_*` | Connected read path; **no silent fallback** to local |
 | Agent `synthetic` (default) | `AGENT_MODE=synthetic` | Deterministic chat, proposals, and execution |
-| Agent `bff` | `AGENT_MODE=bff` + `BFF_*` | Connected BFF boundary; unavailable = explicit error |
+| Agent `bff` | `AGENT_MODE=bff` + `BFF_*` | Live BFF conversational classification; grounded answers and proposals stay server-owned; local synthetic domain connectors still produce mutation receipts |
 
+In public Sites `AGENT_MODE=bff` with healthcare `local`, Breakfast Factory handles
+readiness and chat intent only. It never becomes the proof of a healthcare write.
 Copy `.env.example` to `.env` for local overrides. Credentials are **server-only**.
 Never use `NEXT_PUBLIC_` for secrets.
 
@@ -67,6 +69,8 @@ Post-deploy live smoke (no payer writes, no PHI):
 
 ```bash
 LIVE_BASE_URL=https://your-site.example npm run test:e2e:live
+# Optional: assert the live dashboard Agent badge before mutations
+LIVE_BASE_URL=https://your-site.example LIVE_EXPECT_AGENT_MODE=bff npm run test:e2e:live
 ```
 
 Optional connected adapters (credentials required, not part of default verify):

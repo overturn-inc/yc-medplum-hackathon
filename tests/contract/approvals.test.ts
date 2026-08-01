@@ -11,7 +11,7 @@ import { createSyntheticAgentAdapter } from "@/adapters/agent/synthetic";
 import { loadServerConfig } from "@/server/config";
 import { proposalApprovalFields } from "@/domain/approval";
 import type { ClientApprovalScope } from "@/domain/approval";
-import { getDemoViewModel } from "@/server/demo";
+import { getDemoRuntime, getDemoViewModel } from "@/server/demo";
 
 function tempStore(agentMode: "synthetic" | "bff" = "synthetic") {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "pms-demo-"));
@@ -667,6 +667,87 @@ describe("approval and adapter contracts (repair-2)", () => {
     expect(result.receiptId).toBeNull();
     expect(store.getEpisode("episode-encounter-a")!.submissionReceiptId).toBeNull();
     expect(JSON.stringify(result)).not.toContain("bff-receipt");
+  });
+
+  it("BFF-mode snapshot allows server-built proposals only with an independent synthetic executor", async () => {
+    const bffStore = tempStore("bff");
+    expect(bffStore.getSnapshot().agentMode).toBe("bff");
+
+    const blocked = new ActionService(
+      bffStore,
+      createBffAgentAdapter({
+        baseUrl: "https://bff.example/",
+        apiKey: "k",
+        fetchImpl: async () => new Response("no", { status: 404 }),
+      }),
+    );
+    await expect(
+      blocked.createProposal("episode-claim-c", "request_reprocessing"),
+    ).rejects.toMatchObject({ status: 503, code: "BFF_PROPOSAL_BLOCKED" });
+
+    const allowed = new ActionService(bffStore, createSyntheticAgentAdapter());
+    const created = await allowed.createProposal(
+      "episode-claim-c",
+      "request_reprocessing",
+    );
+    expect(created.proposal.actionType).toBe("request_reprocessing");
+    expect(created.proposal.id).toBeTruthy();
+
+    // Deny then re-propose still works under bff snapshot + synthetic executor.
+    await allowed.decide({
+      episodeId: "episode-claim-c",
+      actionType: "request_reprocessing",
+      decision: "deny",
+      scope: proposalApprovalFields(created.proposal),
+    });
+    const reproposed = await allowed.createProposal(
+      "episode-claim-c",
+      "request_reprocessing",
+    );
+    expect(reproposed.proposal.actionType).toBe("request_reprocessing");
+    expect(bffStore.getEpisode("episode-claim-c")!.proposal?.id).toBe(
+      reproposed.proposal.id,
+    );
+  });
+
+  it("getDemoRuntime keeps BFF for chat and a synthetic ActionService executor when local+bff", async () => {
+    const previousAgent = process.env.AGENT_MODE;
+    const previousHealthcare = process.env.HEALTHCARE_MODE;
+    const previousBase = process.env.BFF_BASE_URL;
+    const previousKey = process.env.BFF_API_KEY;
+    process.env.AGENT_MODE = "bff";
+    process.env.HEALTHCARE_MODE = "local";
+    process.env.BFF_BASE_URL = "https://bff.example/";
+    process.env.BFF_API_KEY = "test-key";
+    try {
+      const store = tempStore("bff");
+      const runtime = await getDemoRuntime(store);
+      expect(runtime.config.agentMode).toBe("bff");
+      expect(runtime.agent.mode).toBe("bff");
+      expect(runtime.agent.classifyConversation).toBeTypeOf("function");
+      // Action executor must be the independent synthetic connector.
+      const created = await runtime.actions.createProposal(
+        "episode-encounter-a",
+        "submit_claim",
+      );
+      expect(created.proposal.actionType).toBe("submit_claim");
+      const decided = await runtime.actions.decide({
+        episodeId: "episode-encounter-a",
+        actionType: "submit_claim",
+        decision: "allow_once",
+        scope: proposalApprovalFields(created.proposal),
+      });
+      expect(decided.receiptId).toBe("receipt-submit-episode-encounter-a");
+    } finally {
+      if (previousAgent === undefined) delete process.env.AGENT_MODE;
+      else process.env.AGENT_MODE = previousAgent;
+      if (previousHealthcare === undefined) delete process.env.HEALTHCARE_MODE;
+      else process.env.HEALTHCARE_MODE = previousHealthcare;
+      if (previousBase === undefined) delete process.env.BFF_BASE_URL;
+      else process.env.BFF_BASE_URL = previousBase;
+      if (previousKey === undefined) delete process.env.BFF_API_KEY;
+      else process.env.BFF_API_KEY = previousKey;
+    }
   });
 
   it("Medplum maps Bundle-only episodes and view model never uses local seed", async () => {

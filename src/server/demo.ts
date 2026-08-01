@@ -49,6 +49,9 @@ export async function getDemoRuntime(store: SessionRepository) {
         })
       : createLocalHealthcareRepository(() => snapshot);
 
+  // Conversational boundary: BFF classifies intent when AGENT_MODE=bff.
+  // Domain answers and proposals stay server-owned; mutation receipts for the
+  // local synthetic healthcare path come from an independent synthetic executor.
   const agent =
     agentMode === "bff"
       ? createBffAgentAdapter({
@@ -57,7 +60,12 @@ export async function getDemoRuntime(store: SessionRepository) {
         })
       : createSyntheticAgentAdapter();
 
-  const actions = new ActionService(store, agent);
+  const actionExecutor =
+    agentMode === "bff" && healthcareMode === "local"
+      ? createSyntheticAgentAdapter()
+      : agent;
+
+  const actions = new ActionService(store, actionExecutor);
 
   return {
     store,

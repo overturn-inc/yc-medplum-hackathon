@@ -194,8 +194,14 @@ export class D1SessionRepository implements SessionRepository {
     this.sessionId = sessionId;
     this.binding = db;
     this.db = openD1PrimarySession(db);
-    this.healthcareMode = options.healthcareMode ?? "local";
-    this.agentMode = options.agentMode ?? "synthetic";
+    this.healthcareMode =
+      options.healthcareMode ??
+      ((process.env.HEALTHCARE_MODE as NonNullable<StoreOptions["healthcareMode"]>) ||
+        "local");
+    this.agentMode =
+      options.agentMode ??
+      ((process.env.AGENT_MODE as NonNullable<StoreOptions["agentMode"]>) ||
+        "synthetic");
     this.snapshot = createInitialSnapshot({
       healthcareMode: this.healthcareMode,
       agentMode: this.agentMode,
@@ -345,6 +351,11 @@ export class D1SessionRepository implements SessionRepository {
       }
     }
     snapshot.episodes = snapshot.episodes.map(rehydrateEpisode);
+    // Replay always adopts the currently configured adapter modes so an
+    // existing ledger opened under AGENT_MODE=bff reports bff without a
+    // destructive migration of historical event rows.
+    snapshot.healthcareMode = this.healthcareMode;
+    snapshot.agentMode = this.agentMode;
     return snapshot;
   }
 

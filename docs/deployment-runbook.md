@@ -40,8 +40,10 @@ Runtime repository selection:
 - `SqliteSessionRepository` (`src/server/sqlite-session-repository.ts`) is Node-test only
   and is never the public Worker authority
 
-Public default success path remains deterministic synthetic mode (no Medplum
-credentials, no live payer writes).
+Public Sites may run healthcare `local` with agent `bff`: BFF classifies chat
+turns, while server-owned grounded answers/proposals and synthetic local domain
+connectors still produce demo mutation receipts. There are no live Medplum,
+payer, or Stedi writes on the public path.
 
 Current public release: https://overturn-agentic-claims.argentum1450.chatgpt.site
 
@@ -57,12 +59,16 @@ Set server-only env from `.env.example`:
 - `AGENT_MODE=bff` + `BFF_*`
 
 Missing or failing connected config shows an explicit degraded / chat error state.
-There is no silent fallback to synthetic fixtures or synthetic chat classification.
+There is no silent fallback to synthetic chat classification. When healthcare
+remains `local`, approved demo mutations still use the independent synthetic
+domain executor; BFF `run_completed` alone is never a domain success receipt.
 
 ## Post-deploy live smoke
 
 ```bash
 LIVE_BASE_URL=https://your-hosted-site.example npm run test:e2e:live
+# Optional agent-mode badge assertion:
+LIVE_BASE_URL=https://your-hosted-site.example LIVE_EXPECT_AGENT_MODE=bff npm run test:e2e:live
 ```
 
 This mutates only anonymous synthetic sessions (submit, Claim B refresh, Claim C

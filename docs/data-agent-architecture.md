@@ -245,9 +245,10 @@ Irreversible external action을 agent가 자율 실행하지 않는다. Read, co
 
 ### Connected BFF mode
 
-- Server-side BFF proxy가 thread, run, SSE event stream을 제공한다.
-- Run failure, timeout, disconnect, duplicate event를 처리한다.
-- BFF unavailable일 때 domain action을 실행한 것처럼 표시하지 않는다. Demo mode에서만 명시적인 deterministic agent를 사용한다.
+- Server-side BFF proxy가 thread, run, SSE event stream과 conversational intent classification을 제공한다.
+- Grounded answer, citation, proposal은 server domain code가 재구성한다. Model output은 상태를 바꾸지 않는다.
+- Healthcare `local` + agent `bff` 공개 데모에서는 ActionService가 독립 synthetic executor로 mutation receipt를 증명한다. BFF `run_completed`만으로는 domain success receipt를 만들지 않는다.
+- BFF unavailable일 때 conversational fallback을 숨기지 않는다. Demo synthetic agent mode에서만 deterministic chat를 사용한다.
 
 ## Idempotency와 승인
 
