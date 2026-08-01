@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { ClaimWorkbench } from "@/components/ClaimWorkbench";
 import { getEpisodeView } from "@/server/demo";
 import { storeFromCookies } from "@/server/request-store";
@@ -16,14 +17,11 @@ export default async function ClaimDetailPage({
   if (!view) notFound();
 
   return (
-    <main className="page" data-testid="claim-detail-page">
-      <header className="page-header">
-        <h1>Claim workbench</h1>
-        <p>
-          Source observations stay immutable. Agent proposals require one-time approval
-          before any synthetic write.
-        </p>
-      </header>
+    <main className="page claim-detail-page" data-testid="claim-detail-page">
+      <div className="breadcrumb-row">
+        <Link href="/claims" className="btn btn-quiet">← Claims</Link>
+        <span className="mono">/claims/{id}</span>
+      </div>
       <ClaimWorkbench
         episode={view.episode}
         preflight={view.preflight}

@@ -125,7 +125,7 @@ export function ApprovalControls({
   }
 
   return (
-    <section aria-label="Approval controls">
+    <section className="approval-boundary" aria-label="Approval controls">
       {preflight && (
         <ul className="check-list" data-testid="preflight-checks">
           {preflight.map((check) => (
@@ -143,11 +143,10 @@ export function ApprovalControls({
       )}
       {visibleProposal ? (
         <>
-          <p className="muted mono" data-testid="approval-scope">
-            proposal={visibleProposal.id} rev={visibleProposal.episodeRevision} fp=
-            {visibleProposal.fingerprint.slice(0, 8)}
+          <p className="approval-scope mono" data-testid="approval-scope">
+            Bound to proposal {visibleProposal.id} · revision {visibleProposal.episodeRevision} · fingerprint {visibleProposal.fingerprint.slice(0, 8)}
           </p>
-          <div className="actions">
+          <div className="actions approval-actions">
             <button
               type="button"
               className="btn btn-danger"
@@ -170,7 +169,7 @@ export function ApprovalControls({
         </>
       ) : (
         canRepropose && (
-          <div className="actions">
+          <div className="actions approval-actions">
             <button
               type="button"
               className="btn"
@@ -184,12 +183,12 @@ export function ApprovalControls({
         )
       )}
       {message && (
-        <p data-testid="approval-message" className="muted">
+        <p data-testid="approval-message" className="success-callout">
           {message}
         </p>
       )}
       {error && (
-        <p data-testid="approval-error" role="alert" className="check-fail">
+        <p data-testid="approval-error" role="alert" className="error-callout">
           {error}
         </p>
       )}

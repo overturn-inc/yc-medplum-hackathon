@@ -21,126 +21,159 @@ const OVERLAY_LABELS: Record<string, string> = {
   approval_required: "Approval required",
 };
 
+const KPI = [
+  { key: "visitsToday", label: "Visits today", detail: "2026-07-15", href: "/encounters", testId: "kpi-visits-today", tone: "neutral" },
+  { key: "visitsThisMonth", label: "Visits this month", detail: "July 2026", href: "/encounters", testId: "kpi-visits-month", tone: "neutral" },
+  { key: "readyToSubmit", label: "Ready to submit", detail: "Needs approval", href: "/claims?filter=ready_to_submit", testId: "kpi-ready", tone: "teal" },
+  { key: "submittedOrInFlight", label: "Submitted or in flight", detail: "Not paid", href: "/claims?filter=submitted", testId: "kpi-submitted", tone: "blue" },
+  { key: "awaitingPayer", label: "Awaiting payer", detail: "Remittance overdue", href: "/claims?filter=awaiting_payer", testId: "kpi-awaiting", tone: "blue" },
+  { key: "needsAttention", label: "Needs attention", detail: "Work these first", href: "/claims?filter=needs_attention", testId: "kpi-attention", tone: "red" },
+  { key: "verifiedPaidMtd", label: "Verified paid MTD", detail: "Remittance + posting", href: "/claims?filter=reconciled_or_closed", testId: "kpi-verified-paid", tone: "green" },
+] as const;
+
 export default async function DashboardPage() {
   const store = await storeFromCookies();
   const model = await getDemoViewModel(store);
   if (!model.ok) return null;
 
-  const { kpi, queues } = model;
+  const { kpi, queues, episodes } = model;
+  const byId = new Map(episodes.map((episode) => [episode.id, episode]));
+  const funnelTotal = Object.values(kpi.funnel).reduce((sum, value) => sum + value, 0);
 
   return (
-    <main className="page" data-testid="dashboard-page">
+    <main className="page dashboard-page" data-testid="dashboard-page">
       <header className="page-header">
-        <h1>Practice overview</h1>
-        <p>
-          Fixture-derived KPI and exception queues. Primary funnel is mutually exclusive;
-          overlays can overlap.
-        </p>
+        <div>
+          <h1>Practice overview</h1>
+          <p>Wednesday 15 July 2026 · Harborview Family Medicine · synthetic fixture data</p>
+        </div>
+        <span className="demo-state"><span aria-hidden className="status-dot" /> Demo ready</span>
       </header>
 
-      <section className="kpi-grid" aria-label="Visit and operations KPI">
-        <Link className="kpi-card" href="/encounters" data-testid="kpi-visits-today">
-          <span>Visits today</span>
-          <strong>{kpi.visitsToday}</strong>
-        </Link>
-        <Link className="kpi-card" href="/encounters" data-testid="kpi-visits-month">
-          <span>Visits this month</span>
-          <strong>{kpi.visitsThisMonth}</strong>
-        </Link>
-        <Link
-          className="kpi-card"
-          href="/claims?filter=ready_to_submit"
-          data-testid="kpi-ready"
-        >
-          <span>Ready to submit</span>
-          <strong>{kpi.readyToSubmit}</strong>
-        </Link>
-        <Link
-          className="kpi-card"
-          href="/claims?filter=submitted"
-          data-testid="kpi-submitted"
-        >
-          <span>Submitted or in flight</span>
-          <strong>{kpi.submittedOrInFlight}</strong>
-        </Link>
-        <Link
-          className="kpi-card"
-          href="/claims?filter=awaiting_payer"
-          data-testid="kpi-awaiting"
-        >
-          <span>Awaiting payer</span>
-          <strong>{kpi.awaitingPayer}</strong>
-        </Link>
-        <Link
-          className="kpi-card"
-          href="/claims?filter=needs_attention"
-          data-testid="kpi-attention"
-        >
-          <span>Needs attention</span>
-          <strong>{kpi.needsAttention}</strong>
-        </Link>
-        <Link className="kpi-card" href="/claims?filter=reconciled_or_closed" data-testid="kpi-verified-paid">
-          <span>Verified paid MTD</span>
-          <strong>{kpi.verifiedPaidMtd}</strong>
-        </Link>
+      <section className="kpi-grid kpi-grid-seven" aria-label="Visit and operations KPI">
+        {KPI.map((item) => (
+          <Link
+            key={item.key}
+            className={`kpi-card kpi-${item.tone}`}
+            href={item.href}
+            data-testid={item.testId}
+          >
+            <span>{item.label}</span>
+            <strong>{kpi[item.key]}</strong>
+            <small>{item.detail}</small>
+          </Link>
+        ))}
       </section>
 
-      <section className="funnel-grid">
-        <div className="panel">
-          <h2>Claim funnel</h2>
-          <ul className="funnel-list" data-testid="funnel-list">
-            {Object.entries(kpi.funnel).map(([key, value]) => (
-              <li key={key}>
-                <Link href={`/claims?filter=${key}`}>{FUNNEL_LABELS[key] ?? key}</Link>
-                <strong data-testid={`funnel-${key}`}>{value}</strong>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="panel">
-          <h2>Overlay flags</h2>
-          <ul className="funnel-list" data-testid="overlay-list">
-            {Object.entries(kpi.overlays).map(([key, value]) => (
-              <li key={key}>
-                <Link href={`/claims?filter=${key}`}>{OVERLAY_LABELS[key] ?? key}</Link>
-                <strong data-testid={`overlay-${key}`}>{value}</strong>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
+      <section className="operations-grid">
+        <div className="operations-stack">
+          <section className="panel queue-panel queue-approval">
+            <header className="section-header">
+              <div>
+                <h2><span aria-hidden>◎</span> Waiting on your approval</h2>
+                <p>Nothing is written until you choose Allow once</p>
+              </div>
+              <span className="count-badge">{queues.approvals.length}</span>
+            </header>
+            <ul className="queue-list" data-testid="approvals-queue">
+              {queues.approvals.map((row) => {
+                const episode = byId.get(row.episodeId);
+                return (
+                  <li key={row.episodeId}>
+                    <Link href={row.href}>
+                      <span className="queue-person">
+                        <strong>{row.patientName}</strong>
+                        <small className="mono">{episode?.claimId ?? "No claim yet"}</small>
+                      </span>
+                      <span className="queue-action">
+                        <strong>{row.title}</strong>
+                        <small>{row.issue}</small>
+                      </span>
+                      <span className="queue-state"><span>◎ Needs Allow once</span><small>{episode?.ageDays ?? 0} days old</small></span>
+                      <span aria-hidden className="queue-chevron">›</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
 
-      <section className="queue-grid">
-        <div className="panel">
-          <h2>Agent approvals</h2>
-          <ul className="queue-list" data-testid="approvals-queue">
-            {queues.approvals.map((row) => (
-              <li key={row.episodeId}>
-                <Link href={row.href}>
-                  <span>
-                    {row.patientName}: {row.title}
-                  </span>
-                  <span className="muted">{row.issue}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <section className="panel queue-panel queue-exception">
+            <header className="section-header">
+              <div>
+                <h2><span aria-hidden>!</span> Exceptions and follow-up</h2>
+                <p>Read-only review · investigate before taking action</p>
+              </div>
+              <span className="count-badge count-warn">{queues.exceptions.length}</span>
+            </header>
+            <ul className="queue-list" data-testid="exceptions-queue">
+              {queues.exceptions.map((row) => {
+                const episode = byId.get(row.episodeId);
+                return (
+                  <li key={`${row.episodeId}-${row.title}`}>
+                    <Link href={row.href}>
+                      <span className="queue-person">
+                        <strong>{row.patientName}</strong>
+                        <small className="mono">{episode?.claimId ?? "No claim"}</small>
+                      </span>
+                      <span className="queue-action">
+                        <strong>{row.issue}</strong>
+                        <small>Next: {episode?.agentAction ?? row.title}</small>
+                      </span>
+                      <span className="queue-state queue-state-warn"><span>{row.title}</span><small>{episode?.ageDays ?? 0} days old</small></span>
+                      <span aria-hidden className="queue-chevron">›</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
         </div>
-        <div className="panel">
-          <h2>Exceptions and follow-up</h2>
-          <ul className="queue-list" data-testid="exceptions-queue">
-            {queues.exceptions.map((row) => (
-              <li key={`${row.episodeId}-${row.title}`}>
-                <Link href={row.href}>
-                  <span>
-                    {row.patientName}: {row.title}
-                  </span>
-                  <span className="muted">{row.issue}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
+
+        <aside className="operations-summary">
+          <section className="panel funnel-panel">
+            <header className="section-header compact">
+              <div><h2>Claim funnel</h2><p>{funnelTotal} claims · one bucket each</p></div>
+            </header>
+            <div className="funnel-bar" aria-hidden>
+              {Object.entries(kpi.funnel).map(([key, value]) => value > 0 ? (
+                <span key={key} className={`funnel-segment segment-${key}`} style={{ flex: value }} />
+              ) : null)}
+            </div>
+            <ul className="funnel-list" data-testid="funnel-list">
+              {Object.entries(kpi.funnel).map(([key, value]) => (
+                <li key={key} className={value === 0 ? "is-zero" : ""}>
+                  {value === 0 ? <div><span>{FUNNEL_LABELS[key] ?? key}</span><strong data-testid={`funnel-${key}`}>{value}</strong></div> : (
+                    <Link href={`/claims?filter=${key}`}><span>{FUNNEL_LABELS[key] ?? key}</span><strong data-testid={`funnel-${key}`}>{value}</strong></Link>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="panel overlay-panel">
+            <header className="section-header compact"><div><h2>Overlay flags</h2><p>Can overlap buckets</p></div></header>
+            <ul className="overlay-list" data-testid="overlay-list">
+              {Object.entries(kpi.overlays).map(([key, value]) => (
+                <li key={key}>
+                  <Link href={`/claims?filter=${key}`}>
+                    <span>{OVERLAY_LABELS[key] ?? key}</span>
+                    <strong data-testid={`overlay-${key}`}>{value}</strong>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="boundary-note">
+            <strong>What this demo does not do</strong>
+            <ul>
+              <li>No live payer, clearinghouse, or Medplum writes.</li>
+              <li>Submitted, accepted, and reprocessing requested never mean paid.</li>
+              <li>Every external action needs a proposal plus Allow once.</li>
+            </ul>
+          </section>
+        </aside>
       </section>
     </main>
   );

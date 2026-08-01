@@ -31,23 +31,31 @@ export default async function EncountersPage({
   });
 
   return (
-    <main className="page" data-testid="encounters-page">
+    <main className="page encounters-page" data-testid="encounters-page">
       <header className="page-header">
-        <h1>Encounters</h1>
-        <p>Ready encounters open claim preflight. Proposals do not submit until Allow once.</p>
+        <div>
+          <h1>Encounters</h1>
+          <p>
+            Completed visits and billing readiness. Creating a proposal is not
+            submission; nothing leaves this workspace until Allow once.
+          </p>
+        </div>
       </header>
-      <EncountersTable rows={rows} />
-      {focus && (
-        <section className="stack" data-testid="encounter-preflight">
-          <h2>Claim preflight — {focus.episode.patientName}</h2>
-          <ClaimWorkbench
-            episode={focus.episode}
-            preflight={focus.preflight}
-            events={focus.events}
-            agentMode={model.config.agentMode}
-          />
-        </section>
-      )}
+      <section className="encounter-workspace">
+        <EncountersTable rows={rows} />
+        {focus && (
+          <section className="encounter-detail" data-testid="encounter-preflight">
+            <div className="detail-kicker">Claim preflight</div>
+            <ClaimWorkbench
+              episode={focus.episode}
+              preflight={focus.preflight}
+              events={focus.events}
+              agentMode={model.config.agentMode}
+              compactHeader
+            />
+          </section>
+        )}
+      </section>
     </main>
   );
 }

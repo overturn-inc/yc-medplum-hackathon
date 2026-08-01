@@ -5,8 +5,22 @@ import { storeFromCookies } from "@/server/request-store";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://overturn-agentic-claims.argentum1450.chatgpt.site"),
   title: "Harborview PMS — Agent-native demo",
-  description: "Synthetic local-first agent-native practice management demo",
+  description:
+    "A synthetic, agent-native medical billing workspace for claim submission, source-aware follow-up, denial resolution, and payment reconciliation.",
+  openGraph: {
+    title: "Harborview PMS — Agent-native claims operations",
+    description:
+      "Track the full claim lifecycle, investigate source discrepancies, and execute bounded agent actions with explicit approval.",
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Abstract medical claims verification workflow" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Harborview PMS — Agent-native claims operations",
+    description: "A source-aware medical billing workflow with grounded agent actions and explicit approval.",
+    images: ["/og.png"],
+  },
 };
 
 export const dynamic = "force-dynamic";

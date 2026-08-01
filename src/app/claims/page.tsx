@@ -44,10 +44,15 @@ export default async function ClaimsPage({
     });
 
   return (
-    <main className="page" data-testid="claims-page">
+    <main className="page claims-page" data-testid="claims-page">
       <header className="page-header">
-        <h1>Claims</h1>
-        <p>Multi-source lifecycle queue. Open a row for evidence-rich workbench.</p>
+        <div>
+          <h1>Claims</h1>
+          <p>
+            Every claim across the lifecycle, with the source that reported each
+            state. Submitted, accepted, and reprocessing requested are never paid.
+          </p>
+        </div>
       </header>
       <ClaimsTable rows={rows} initialFilter={filter} />
     </main>

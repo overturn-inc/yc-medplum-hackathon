@@ -1,7 +1,7 @@
 import { AgentStation } from "@/components/AgentStation";
 import type { EpisodeView } from "@/domain/projector";
 import type { PreflightCheck } from "@/domain/preflight";
-import type { DomainEvent } from "@/domain/types";
+import type { DomainEvent, SourceObservation } from "@/domain/types";
 
 const LIFECYCLE_ORDER = [
   "Encounter",
@@ -12,199 +12,253 @@ const LIFECYCLE_ORDER = [
   "Posting",
 ] as const;
 
+const BUCKET_LABELS: Record<string, string> = {
+  needs_claim: "Needs claim",
+  ready_to_submit: "Ready to submit",
+  rejected_before_adjudication: "Rejected before adjudication",
+  awaiting_payer: "Awaiting payer",
+  action_required: "Action required",
+  denied_under_resolution: "Denied — in resolution",
+  paid_needs_posting: "Paid — needs posting",
+  reconciled_or_closed: "Reconciled and closed",
+};
+
+function latestObservation(
+  episode: EpisodeView,
+  source: SourceObservation["source"],
+) {
+  return episode.observations
+    .filter((observation) => observation.source === source)
+    .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
+}
+
+function humanize(value: string) {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function money(value: number | null) {
+  return value == null ? "Not reported" : `$${value.toFixed(2)}`;
+}
+
+function sourceStage(
+  label: string,
+  observation: SourceObservation | undefined,
+) {
+  return {
+    label,
+    raw: observation?.rawStatus ?? "No observation",
+    normalized: observation?.normalizedStatus ?? "Not reported",
+    at: observation?.observedAt ?? "Timestamp unavailable",
+    evidence: observation?.evidenceReference ?? "No source document",
+    synthetic: observation?.synthetic ?? false,
+    pending: !observation,
+  };
+}
+
 export function ClaimWorkbench({
   episode,
   preflight,
   events = [],
   agentMode = "synthetic",
+  compactHeader = false,
 }: {
   episode: EpisodeView;
   preflight?: PreflightCheck[] | null;
   events?: DomainEvent[];
   agentMode?: string;
+  compactHeader?: boolean;
 }) {
-  const sourceBlocks = [
+  const pms = latestObservation(episode, "pms");
+  const remittance = latestObservation(episode, "remittance");
+  const posting = latestObservation(episode, "posting");
+  const lifecycle = [
     {
       label: "Encounter",
       raw: episode.encounterState,
-      normalized: episode.encounterState,
-      at: `${episode.dateOfService}T14:00:00.000Z`,
+      normalized: humanize(episode.encounterState),
+      at: `${episode.dateOfService} 14:00 UTC`,
       evidence: `Encounter/encounter-${episode.id}`,
+      synthetic: true,
+      pending: false,
     },
     {
       label: "Claim",
-      raw: episode.claimId ?? "No claim",
-      normalized: episode.chargeState,
-      at: episode.lastVerifiedAt,
-      evidence: episode.claimId ? `Claim/${episode.claimId.toLowerCase()}` : "—",
+      raw: episode.claimId ?? "No claim created",
+      normalized: humanize(episode.chargeState),
+      at: "Timestamp unavailable",
+      evidence: episode.claimId ? `Claim/${episode.claimId.toLowerCase()}` : "No claim resource",
+      synthetic: true,
+      pending: !episode.claimId,
     },
-    ...(["clearinghouse", "payer", "remittance", "posting"] as const).map((source) => {
-      const obs = episode.observations
-        .filter((o) => o.source === source)
-        .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
-      return {
-        label: source[0]!.toUpperCase() + source.slice(1),
-        raw: obs?.rawStatus ?? "—",
-        normalized: obs?.normalizedStatus ?? "—",
-        at: obs?.observedAt ?? "—",
-        evidence: obs?.evidenceReference ?? "—",
-        synthetic: obs?.synthetic,
-      };
-    }),
+    sourceStage("Clearinghouse", latestObservation(episode, "clearinghouse")),
+    sourceStage("Payer", latestObservation(episode, "payer")),
+    sourceStage("Remittance", remittance),
+    sourceStage("Posting", posting),
   ];
 
-  // Ensure PMS observation is visible in lifecycle narrative
-  const pms = episode.observations
-    .filter((o) => o.source === "pms")
-    .sort((a, b) => b.observedAt.localeCompare(a.observedAt))[0];
+  const statusLabel = BUCKET_LABELS[episode.primaryBucket] ?? humanize(episode.primaryBucket);
 
   return (
     <div className="workbench" data-testid={`workbench-${episode.id}`}>
-      <div className="stack">
-        <section className="panel">
-          <div className="meta-row">
-            <span className="badge">{episode.patientName}</span>
-            <span className="badge">{episode.payerName}</span>
-            <span className="badge">${episode.billedAmount.toFixed(2)}</span>
-            <span className="badge">{episode.primaryBucket}</span>
-            <span className="badge">{episode.resolutionState}</span>
-            <span className="badge">Verified {episode.lastVerifiedAt}</span>
-            {episode.verifiedPaid && <span className="badge">Verified paid</span>}
-            {episode.overlays.includes("source_discrepancy") && (
-              <span className="badge danger" data-testid="discrepancy-badge">
-                Source discrepancy
-              </span>
-            )}
+      <section className={`panel workbench-summary ${compactHeader ? "workbench-summary-compact" : ""}`}>
+        <div className="workbench-summary-main">
+          <div>
+            <span className="eyebrow">Claim episode</span>
+            <h2>{episode.patientName}</h2>
+            <p className="muted">
+              {episode.claimId ?? "No claim yet"} · DOS {episode.dateOfService} · {episode.payerName}
+            </p>
           </div>
-          <p className="muted">
-            Provider {episode.providerName} · DOS {episode.dateOfService} · Owner{" "}
-            {episode.owner}
-          </p>
-        </section>
+          <div className="summary-status">
+            <span className={`status-pill status-${episode.primaryBucket}`}>
+              {statusLabel}
+            </span>
+            <small>Verified {episode.lastVerifiedAt}</small>
+          </div>
+        </div>
 
-        <section className="panel">
-          <h2>Lifecycle</h2>
-          <div className="lifecycle" data-testid="lifecycle">
-            {sourceBlocks.map((block) => (
-              <div key={block.label} className="lifecycle-item">
-                <strong>{block.label}</strong>
+        <dl className="summary-facts">
+          <div><dt>Provider</dt><dd>{episode.providerName}</dd></div>
+          <div><dt>Service</dt><dd>{episode.cpt ?? "Not reported"}</dd></div>
+          <div><dt>Billed</dt><dd>${episode.billedAmount.toFixed(2)}</dd></div>
+          <div><dt>Owner</dt><dd>{episode.owner}</dd></div>
+          <div><dt>Resolution</dt><dd>{humanize(episode.resolutionState)}</dd></div>
+        </dl>
+
+        <div className="meta-row summary-flags">
+          {episode.verifiedPaid && <span className="badge badge-success">Verified paid</span>}
+          {episode.overlays.includes("source_discrepancy") && (
+            <span className="badge danger" data-testid="discrepancy-badge">Source discrepancy</span>
+          )}
+          {episode.overlays.includes("approval_required") && <span className="badge">Approval required</span>}
+          {episode.overlays.includes("follow_up_due") && <span className="badge warn">Follow-up due</span>}
+        </div>
+      </section>
+
+      <div className="workbench-layout">
+        <div className="workbench-main">
+          {episode.discrepancies.length > 0 ? (
+            <section className="panel proof-panel discrepancy-proof" data-testid="discrepancy-panel">
+              <header className="section-header compact">
                 <div>
-                  <div>
-                    Raw: <span className="mono">{block.raw}</span>
-                  </div>
-                  <div>
-                    Normalized: <span className="mono">{block.normalized}</span>
-                  </div>
-                  <div className="muted">Observed {block.at}</div>
-                  <div className="muted">Evidence {block.evidence}</div>
-                  {"synthetic" in block && block.synthetic ? (
-                    <span className="badge warn">Synthetic</span>
-                  ) : null}
+                  <span className="eyebrow eyebrow-danger">Source conflict</span>
+                  <h2>PMS and payer disagree</h2>
                 </div>
-              </div>
-            ))}
-            {pms && (
-              <div className="lifecycle-item" data-testid="pms-observation">
-                <strong>PMS observation</strong>
-                <div>
-                  <div>
-                    Raw: <span className="mono">{pms.rawStatus}</span>
+                <span className="badge danger">Newer payer truth</span>
+              </header>
+              {episode.discrepancies.map((finding) => (
+                <div key={finding.ruleId} className="discrepancy-finding">
+                  <p>{finding.summary}</p>
+                  <div className="source-compare">
+                    {finding.comparedSources.map((source) => (
+                      <article key={`${source.source}-${source.observedAt}`}>
+                        <span className="eyebrow">{humanize(source.source)}</span>
+                        <strong>{humanize(source.normalizedStatus)}</strong>
+                        <small>Observed {source.observedAt}</small>
+                        <code>{source.evidenceReference}</code>
+                      </article>
+                    ))}
                   </div>
-                  <div>
-                    Normalized: <span className="mono">{pms.normalizedStatus}</span>
-                  </div>
-                  <div className="muted">Observed {pms.observedAt}</div>
-                  <div className="muted">Evidence {pms.evidenceReference}</div>
-                  {pms.synthetic && <span className="badge warn">Synthetic</span>}
-                </div>
-              </div>
-            )}
-          </div>
-          <p className="muted">
-            Order: {LIFECYCLE_ORDER.join(" → ")}. Current Medplum Stedi path stores raw
-            277/835 as DocumentReference and does not auto-create normalized adjudication
-            ClaimResponse or PaymentReconciliation.
-          </p>
-        </section>
-
-        <section className="panel">
-          <h2>Financial reconciliation</h2>
-          <div className="kpi-grid" data-testid="financials">
-            <div className="kpi-card">
-              <span>Billed</span>
-              <strong>${episode.financial.billed.toFixed(2)}</strong>
-            </div>
-            <div className="kpi-card">
-              <span>Allowed</span>
-              <strong>
-                {episode.financial.allowed == null
-                  ? "—"
-                  : `$${episode.financial.allowed.toFixed(2)}`}
-              </strong>
-            </div>
-            <div className="kpi-card">
-              <span>Paid</span>
-              <strong>
-                {episode.financial.paid == null
-                  ? "—"
-                  : `$${episode.financial.paid.toFixed(2)}`}
-              </strong>
-            </div>
-            <div className="kpi-card">
-              <span>Posted</span>
-              <strong>
-                {episode.financial.posted == null
-                  ? "—"
-                  : `$${episode.financial.posted.toFixed(2)}`}
-              </strong>
-            </div>
-          </div>
-        </section>
-
-        <section className="panel">
-          <h2>Evidence drawer</h2>
-          <ul className="evidence-list" data-testid="evidence-drawer">
-            {episode.evidence.map((item) => (
-              <li key={item.id}>
-                <strong>{item.title}</strong>
-                <div className="muted">{item.summary}</div>
-                <div className="mono">{item.reference}</div>
-                {item.synthetic && <span className="badge warn">Synthetic</span>}
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        {episode.discrepancies.length > 0 && (
-          <section className="panel" data-testid="discrepancy-panel">
-            <h2>Discrepancy findings</h2>
-            {episode.discrepancies.map((finding) => (
-              <div key={finding.ruleId} className="stack">
-                <strong>{finding.ruleId}</strong>
-                <p>{finding.summary}</p>
-                <ul className="funnel-list">
-                  {finding.comparedSources.map((source) => (
-                    <li key={`${source.source}-${source.observedAt}`}>
-                      <span>
-                        {source.source}: {source.normalizedStatus}
-                      </span>
-                      <span className="muted">{source.observedAt}</span>
-                    </li>
+                  {finding.evidenceReferences.map((reference) => (
+                    <span key={reference} className="evidence-reference">◆ {reference}</span>
                   ))}
-                </ul>
+                </div>
+              ))}
+            </section>
+          ) : episode.verifiedPaid ? (
+            <section className="panel proof-panel verified-proof">
+              <header className="section-header compact">
+                <div><span className="eyebrow eyebrow-success">Independent agreement</span><h2>Verified paid</h2></div>
+                <span className="badge badge-success">Reconciled</span>
+              </header>
+              <p>
+                Payment is verified only because remittance and the independent PMS posting agree.
+                A payer portal status by itself is not enough.
+              </p>
+              <div className="paid-proof-grid">
+                <article><span>Remittance</span><strong>{money(episode.financial.paid)}</strong><small>{remittance?.observedAt ?? "Timestamp unavailable"}</small><code>{remittance?.evidenceReference ?? "No evidence"}</code></article>
+                <span className="proof-equals" aria-hidden>=</span>
+                <article><span>PMS posting</span><strong>{money(episode.financial.posted)}</strong><small>{posting?.observedAt ?? "Timestamp unavailable"}</small><code>{posting?.evidenceReference ?? "No evidence"}</code></article>
               </div>
-            ))}
-          </section>
-        )}
-      </div>
+            </section>
+          ) : preflight ? (
+            <section className="panel proof-panel readiness-proof">
+              <span className="eyebrow">Submission readiness</span>
+              <h2>{preflight.every((check) => check.passed) ? "Ready for approval" : "Blocked before submission"}</h2>
+              <p className="muted">The agent can prepare the action, but it cannot write externally without Allow once.</p>
+            </section>
+          ) : null}
 
-      <AgentStation
-        key={episode.id}
-        episode={episode}
-        preflight={preflight}
-        events={events}
-        agentMode={agentMode}
-      />
+          <section className="panel evidence-panel">
+            <header className="section-header compact">
+              <div><span className="eyebrow">Grounding</span><h2>Evidence drawer</h2></div>
+              <span className="count-badge">{episode.evidence.length}</span>
+            </header>
+            <ul className="evidence-list" data-testid="evidence-drawer">
+              {episode.evidence.map((item) => (
+                <li key={item.id} id={`evidence-${item.id}`}>
+                  <div className="evidence-heading">
+                    <strong>{item.title}</strong>
+                    {item.synthetic && <span className="badge warn">Synthetic</span>}
+                  </div>
+                  <div className="muted">{item.summary}</div>
+                  <div className="evidence-meta"><span>{item.observedAt}</span><code>{item.reference}</code></div>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="panel lifecycle-panel">
+            <header className="section-header compact">
+              <div><span className="eyebrow">Multi-source state</span><h2>Claim lifecycle</h2></div>
+              <span className="muted">Newest source wins</span>
+            </header>
+            {pms && (
+              <div className="pms-callout" data-testid="pms-observation">
+                <div><span className="eyebrow">PMS observation</span><strong>{humanize(pms.normalizedStatus)}</strong></div>
+                <div><small>Observed {pms.observedAt}</small><code>{pms.evidenceReference}</code></div>
+              </div>
+            )}
+            <ol className="lifecycle" data-testid="lifecycle">
+              {lifecycle.map((stage, index) => (
+                <li key={stage.label} className={`lifecycle-item ${stage.pending ? "lifecycle-pending" : ""}`}>
+                  <span className="stage-marker" aria-hidden>{index + 1}</span>
+                  <div className="stage-body">
+                    <div className="stage-title"><strong>{stage.label}</strong><span>{stage.normalized}</span></div>
+                    <div className="stage-details">
+                      <span>Raw <code>{stage.raw}</code></span>
+                      <span>Observed {stage.at}</span>
+                      <span>Evidence <code>{stage.evidence}</code></span>
+                      {stage.synthetic && <span className="badge warn">Synthetic</span>}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            <p className="muted lifecycle-note">Order: {LIFECYCLE_ORDER.join(" → ")}. Submitted, accepted, and reprocessing requested are never treated as paid.</p>
+          </section>
+
+          <section className="panel financial-panel">
+            <header className="section-header compact"><div><span className="eyebrow">Reconciliation</span><h2>Financials</h2></div></header>
+            <div className="financial-grid" data-testid="financials">
+              <div><span>Billed</span><strong>{money(episode.financial.billed)}</strong></div>
+              <div><span>Allowed</span><strong>{money(episode.financial.allowed)}</strong></div>
+              <div><span>Paid</span><strong>{money(episode.financial.paid)}</strong></div>
+              <div><span>Posted</span><strong>{money(episode.financial.posted)}</strong></div>
+              <div><span>Adjustment</span><strong>{money(episode.financial.adjustment)}</strong></div>
+              <div><span>Patient responsibility</span><strong>{money(episode.financial.patientResponsibility)}</strong></div>
+            </div>
+          </section>
+        </div>
+
+        <AgentStation
+          key={episode.id}
+          episode={episode}
+          preflight={preflight}
+          events={events}
+          agentMode={agentMode}
+        />
+      </div>
     </div>
   );
 }
