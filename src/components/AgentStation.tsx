@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { ApprovalControls } from "@/components/ApprovalControls";
 import {
   defaultActionTypeForFixture,
@@ -37,12 +37,12 @@ export function AgentStation({
   agentMode?: string;
 }) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const [pending, setPending] = useState(false);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [refreshPending, startRefreshTransition] = useTransition();
+  const [refreshPending, setRefreshPending] = useState(false);
 
   const conversation = episode.conversation ?? [];
   const suggested = SUGGESTED_QUESTIONS[episode.fixtureKey] ?? [];
@@ -52,12 +52,13 @@ export function AgentStation({
     defaultAction ??
     "submit_claim";
 
-  function send(message: string) {
+  async function send(message: string) {
     const text = message.trim();
     if (!text || pending) return;
     setError(null);
     setDraft("");
-    startTransition(async () => {
+    setPending(true);
+    try {
       const response = await fetch(`/api/episodes/${episode.id}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -73,14 +74,19 @@ export function AgentStation({
         return;
       }
       router.refresh();
-    });
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Chat failed");
+    } finally {
+      setPending(false);
+    }
   }
 
-  function refreshPayerStatus() {
+  async function refreshPayerStatus() {
     if (refreshPending) return;
     setRefreshError(null);
     setRefreshMessage(null);
-    startRefreshTransition(async () => {
+    setRefreshPending(true);
+    try {
       const response = await fetch(`/api/episodes/${episode.id}/refresh-status`, {
         method: "POST",
       });
@@ -95,7 +101,13 @@ export function AgentStation({
           : `Payer status refreshed. Receipt ${data.receiptId}. Next follow-up ${data.followUpAt}.`,
       );
       router.refresh();
-    });
+    } catch (error) {
+      setRefreshError(
+        error instanceof Error ? error.message : "Refresh failed",
+      );
+    } finally {
+      setRefreshPending(false);
+    }
   }
 
   return (
@@ -146,7 +158,7 @@ export function AgentStation({
               key={q}
               type="button"
               className="filter-chip"
-              onClick={() => send(q)}
+              onClick={() => void send(q)}
               disabled={pending}
               data-testid={`chip-${q}`}
             >
@@ -160,7 +172,7 @@ export function AgentStation({
         className="chat-input-row"
         onSubmit={(e) => {
           e.preventDefault();
-          send(draft);
+          void send(draft);
         }}
       >
         <input
@@ -200,7 +212,7 @@ export function AgentStation({
               type="button"
               className="btn btn-primary"
               disabled={refreshPending}
-              onClick={refreshPayerStatus}
+              onClick={() => void refreshPayerStatus()}
               data-testid="refresh-payer-status"
             >
               Refresh payer status
