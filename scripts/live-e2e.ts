@@ -105,6 +105,24 @@ async function main() {
   console.log("[live] Claim C deny, re-propose, allow");
   // Claim C deny / re-propose / allow
   await page.goto(`${LIVE_ROOT}/claims/episode-claim-c`);
+  await expect(page.getByTestId("moss-retrieval")).toContainText(
+    "Moss evidence retrieval",
+    { timeout: 30_000 },
+  );
+  await page
+    .getByTestId("agent-chat-input")
+    .fill("What evidence supports reprocessing?");
+  await page.getByTestId("agent-chat-send").click();
+  await expect(page.getByTestId("moss-retrieval")).toContainText(
+    "Authorization not required",
+    { timeout: 30_000 },
+  );
+  await expect(page.getByTestId("moss-retrieval")).toContainText(
+    "AWS local sidecar",
+  );
+  await expect(page.getByTestId("moss-retrieval")).not.toContainText(
+    "temporarily unavailable",
+  );
   await page.getByTestId("deny-action").click();
   await waitForApprovalOutcome(page, "Claim C deny");
   await page.getByTestId("repropose-action").waitFor({ timeout: 30_000 });
