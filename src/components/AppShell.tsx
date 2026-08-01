@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState, useSyncExternalStore, useTransition } from "react";
+
+const subscribeToHydration = () => () => {};
 
 const NAV = [
   { href: "/dashboard", label: "Overview", enabled: true },
@@ -29,6 +31,15 @@ export function AppShell({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [navigationOpen, setNavigationOpen] = useState(false);
+  // Server-rendered controls are visible before React attaches their event
+  // handlers. Keep them non-interactive for that brief window so a fast click
+  // cannot be silently dropped. useSyncExternalStore provides a hydration-safe
+  // server snapshot without an effect-driven state update.
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
 
   function resetDemo() {
     startTransition(async () => {
@@ -38,7 +49,11 @@ export function AppShell({
   }
 
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      data-hydrated={hydrated ? "true" : "false"}
+      aria-busy={hydrated ? undefined : "true"}
+    >
       <aside
         className={`sidebar ${navigationOpen ? "sidebar-open" : ""}`}
         aria-label="Primary"

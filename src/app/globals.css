@@ -96,6 +96,15 @@ code,
   min-height: 100vh;
 }
 
+/* Prevent pre-hydration clicks from disappearing before React handlers bind. */
+.app-shell[data-hydrated="false"] a,
+.app-shell[data-hydrated="false"] button,
+.app-shell[data-hydrated="false"] input,
+.app-shell[data-hydrated="false"] select,
+.app-shell[data-hydrated="false"] textarea {
+  pointer-events: none;
+}
+
 .sidebar {
   position: sticky;
   top: 0;
