@@ -1786,6 +1786,45 @@ td small {
   padding: 0 14px 14px;
 }
 
+.stedi-check {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 11px;
+  margin-top: 12px;
+  border: 1px solid #c9d9e9;
+  border-radius: 8px;
+  background: var(--blue-soft);
+}
+
+.stedi-check > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.stedi-check strong {
+  font-size: 0.72rem;
+}
+
+.stedi-check small {
+  color: var(--muted);
+  font-size: 0.6rem;
+}
+
+.stedi-result,
+.stedi-check > .error-callout {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 3px;
+  margin: 0;
+}
+
+.stedi-result code {
+  overflow-wrap: anywhere;
+  font-size: 0.56rem;
+}
+
 .check-list {
   display: grid;
   gap: 5px;
@@ -2332,6 +2371,14 @@ td small {
 
   .readonly-action {
     grid-template-columns: 1fr;
+  }
+
+  .stedi-check {
+    grid-template-columns: 1fr;
+  }
+
+  .stedi-check .btn {
+    width: 100%;
   }
 
   .correction-preview {

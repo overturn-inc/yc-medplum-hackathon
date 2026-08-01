@@ -35,7 +35,7 @@ npm run verify
 | ESLint | Passed |
 | FHIR validation | Passed (3) |
 | Unit tests | Passed (36) |
-| Contract tests | Passed (38) |
+| Contract tests | Passed (42) |
 | Replay tests | Passed (3) |
 | Database / session / D1 tests | Passed (19) |
 | Next.js production build (`build:next`) | Passed |
@@ -84,7 +84,15 @@ npm run verify
 - Sites deployability is evidenced by `build:sites` + `package-site.sh`, not by schema files alone.
 - Public BFF is live through the AWS acceptance environment and Bedrock Sonnet;
   failures remain visible and there is no silent conversational fallback.
-- No claim of live Stedi, live Medplum credentials, or live payer writes.
+- A post-release local Stedi integration passed a real test-mode 270/271 API
+  request and UI journey using Stedi's approved synthetic Jane Doe record. The
+  Stedi portal recorded the check as Active, and the response contained five
+  active benefits plus the raw 271 X12 payload.
+- The current Stedi account is Sandbox. A direct test call to the professional
+  claims endpoint returned HTTP 403 `access_denied`; the portal likewise says
+  claims are unavailable until upgrade. No 837P, 277CA, 835, production payer,
+  or real PHI claim is made.
+- No claim of live Stedi claim submission, live Medplum credentials, or live payer writes.
 - `LIVE_BASE_URL=https://overturn-agentic-claims.argentum1450.chatgpt.site
   LIVE_EXPECT_AGENT_MODE=bff npm run test:e2e:live` passed the final release-20
   run after three earlier full runs. The runs covered Encounter A submission, Claim B refresh, Claim C deny,

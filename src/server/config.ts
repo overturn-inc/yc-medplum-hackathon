@@ -4,6 +4,9 @@ import type { AgentMode, HealthcareMode } from "@/domain/types";
 const configSchema = z.object({
   healthcareMode: z.enum(["local", "medplum"]),
   agentMode: z.enum(["synthetic", "bff"]),
+  stediMode: z.enum(["off", "test"]),
+  stediBaseUrl: z.string().url().optional(),
+  stediApiKey: z.string().min(1).optional(),
   medplumBaseUrl: z.string().url().optional(),
   medplumClientId: z.string().min(1).optional(),
   medplumClientSecret: z.string().min(1).optional(),
@@ -24,10 +27,14 @@ export type ServerConfig = z.infer<typeof configSchema> & {
 export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const healthcareMode = (env.HEALTHCARE_MODE as HealthcareMode) || "local";
   const agentMode = (env.AGENT_MODE as AgentMode) || "synthetic";
+  const stediMode = env.STEDI_MODE === "test" ? "test" : "off";
 
   const parsed = configSchema.safeParse({
     healthcareMode,
     agentMode,
+    stediMode,
+    stediBaseUrl: env.STEDI_BASE_URL,
+    stediApiKey: env.STEDI_API_KEY,
     medplumBaseUrl: env.MEDPLUM_BASE_URL,
     medplumClientId: env.MEDPLUM_CLIENT_ID,
     medplumClientSecret: env.MEDPLUM_CLIENT_SECRET,
@@ -61,6 +68,10 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     }
   }
 
+  if (config.stediMode === "test" && !config.stediApiKey) {
+    throw new Error("STEDI_MODE=test requires STEDI_API_KEY");
+  }
+
   return config;
 }
 
@@ -69,6 +80,8 @@ export function publicAdapterStatus(config: ServerConfig): {
   agentMode: AgentMode;
   medplumConfigured: boolean;
   bffConfigured: boolean;
+  stediMode: "off" | "test";
+  stediConfigured: boolean;
 } {
   return {
     healthcareMode: config.healthcareMode,
@@ -80,5 +93,7 @@ export function publicAdapterStatus(config: ServerConfig): {
         config.medplumProjectId,
     ),
     bffConfigured: Boolean(config.bffBaseUrl && config.bffApiKey),
+    stediMode: config.stediMode,
+    stediConfigured: config.stediMode === "test" && Boolean(config.stediApiKey),
   };
 }
