@@ -63,10 +63,10 @@ docker run -d \
   --tmpfs /tmp:rw,exec,nosuid,size=512m \
   --cap-drop ALL \
   --security-opt no-new-privileges \
-  --memory 1536m \
-  --cpus 1.5 \
+  --memory 896m \
+  --cpus 1.0 \
   --env AUTOMATION_SECRET_FILE=/run/secrets/automation.json \
-  --env AUTOMATION_JOB_CONCURRENCY=2 \
+  --env AUTOMATION_JOB_CONCURRENCY=1 \
   --env AUTOMATION_JOB_TIMEOUT_MS=90000 \
   --mount type=bind,src=/run/automation-sidecar/secret.json,dst=/run/secrets/automation.json,readonly \
   --log-driver awslogs \
