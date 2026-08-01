@@ -1,0 +1,67 @@
+{
+  "name": "yc-medplum-hackathon",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "npm run build:sites",
+    "build:next": "next build",
+    "build:sites": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "validate:fhir": "vitest run --config vitest.config.ts tests/fhir",
+    "test:unit": "vitest run --config vitest.config.ts tests/unit",
+    "test:contract": "vitest run --config vitest.config.ts tests/contract",
+    "test:replay": "vitest run --config vitest.config.ts tests/replay",
+    "test:db": "vitest run --config vitest.config.ts tests/db",
+    "test:e2e": "playwright test",
+    "test:e2e:live": "tsx scripts/live-e2e.ts",
+    "test:secrets": "tsx scripts/secret-scan.ts",
+    "test:public": "tsx scripts/public-repo-audit.ts",
+    "verify": "npm run typecheck && npm run lint && npm run validate:fhir && npm run test:unit && npm run test:contract && npm run test:replay && npm run test:db && npm run test:public && npm run build:next && npm run test:e2e && npm run build:sites && npm run test:secrets",
+    "db:generate": "drizzle-kit generate",
+    "seed:medplum": "tsx scripts/seed-medplum.ts",
+    "test:medplum": "vitest run --config vitest.config.ts tests/medplum"
+  },
+  "dependencies": {
+    "@medplum/core": "5.1.27",
+    "@medplum/definitions": "5.1.27",
+    "@medplum/fhirtypes": "5.1.27",
+    "better-sqlite3": "^12.11.1",
+    "drizzle-orm": "^0.45.2",
+    "next": "16.2.12",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.37.1",
+    "@eslint/eslintrc": "^3.3.1",
+    "@playwright/test": "1.61.0",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^22.18.1",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^6.0.2",
+    "@vitejs/plugin-rsc": "^0.5.26",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9.35.0",
+    "eslint-config-next": "16.2.12",
+    "react-server-dom-webpack": "^19.2.6",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vinext": "^0.0.50",
+    "vite": "^8.0.13",
+    "vitest": "^4.0.5",
+    "wrangler": "^4.92.0"
+  },
+  "overrides": {
+    "postcss": "^8.5.18",
+    "sharp": "^0.35.0"
+  },
+  "type": "module"
+}
