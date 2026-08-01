@@ -162,7 +162,13 @@ export function AgentStation({
                 <small>
                   Synthetic claim scope
                   {retrieval
-                    ? ` · ${retrieval.execution === "local-in-memory" ? "Local in-memory" : "Cloud"}`
+                    ? ` · ${
+                        retrieval.execution === "local-in-memory"
+                          ? "Local in-memory"
+                          : retrieval.execution === "aws-local-sidecar"
+                            ? "AWS local sidecar"
+                            : "Moss cloud"
+                      }`
                     : ""}
                 </small>
               </span>

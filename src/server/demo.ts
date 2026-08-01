@@ -15,7 +15,10 @@ import {
 import { runPreflight } from "@/domain/preflight";
 import type { ClaimEpisode, DemoSnapshot } from "@/domain/types";
 import { ActionService } from "@/server/actions";
-import { createMossCloudRetrievalAdapter } from "@/adapters/retrieval/moss";
+import {
+  createMossCloudRetrievalAdapter,
+  createMossSidecarRetrievalAdapter,
+} from "@/adapters/retrieval/moss";
 import { loadServerConfig, publicAdapterStatus } from "@/server/config";
 import { StoreDegradedError } from "@/server/store";
 import type { SessionRepository } from "@/server/repository";
@@ -72,18 +75,25 @@ export async function getDemoRuntime(store: SessionRepository) {
   const actions = new ActionService(store, actionExecutor);
   const mossConfigured = Boolean(
     process.env.MOSS_MODE === "live" &&
-      process.env.MOSS_PROJECT_ID &&
-      process.env.MOSS_PROJECT_KEY &&
-      process.env.MOSS_INDEX_NAME,
+      process.env.MOSS_INDEX_NAME &&
+      (process.env.MOSS_EXECUTION === "sidecar"
+        ? process.env.MOSS_SIDECAR_URL && process.env.MOSS_SIDECAR_API_KEY
+        : process.env.MOSS_PROJECT_ID && process.env.MOSS_PROJECT_KEY),
   );
   const retrieval = mossConfigured
-    ? createMossCloudRetrievalAdapter({
-        projectId: process.env.MOSS_PROJECT_ID!,
-        projectKey: process.env.MOSS_PROJECT_KEY!,
-        indexName: process.env.MOSS_INDEX_NAME!,
-        preferredExecution:
-          process.env.MOSS_EXECUTION === "local" ? "local" : "cloud",
-      })
+    ? process.env.MOSS_EXECUTION === "sidecar"
+      ? createMossSidecarRetrievalAdapter({
+          endpoint: process.env.MOSS_SIDECAR_URL!,
+          apiKey: process.env.MOSS_SIDECAR_API_KEY!,
+          indexName: process.env.MOSS_INDEX_NAME!,
+        })
+      : createMossCloudRetrievalAdapter({
+          projectId: process.env.MOSS_PROJECT_ID!,
+          projectKey: process.env.MOSS_PROJECT_KEY!,
+          indexName: process.env.MOSS_INDEX_NAME!,
+          preferredExecution:
+            process.env.MOSS_EXECUTION === "local" ? "local" : "cloud",
+        })
     : null;
 
   return {
@@ -106,10 +116,17 @@ export async function getDemoRuntime(store: SessionRepository) {
         stediBaseUrl: process.env.STEDI_BASE_URL,
         stediApiKey: process.env.STEDI_API_KEY,
         mossMode: process.env.MOSS_MODE === "live" ? "live" : "off",
-        mossExecution: process.env.MOSS_EXECUTION === "local" ? "local" : "cloud",
+        mossExecution:
+          process.env.MOSS_EXECUTION === "local"
+            ? "local"
+            : process.env.MOSS_EXECUTION === "sidecar"
+              ? "sidecar"
+              : "cloud",
         mossProjectId: process.env.MOSS_PROJECT_ID,
         mossProjectKey: process.env.MOSS_PROJECT_KEY,
         mossIndexName: process.env.MOSS_INDEX_NAME,
+        mossSidecarUrl: process.env.MOSS_SIDECAR_URL,
+        mossSidecarApiKey: process.env.MOSS_SIDECAR_API_KEY,
       }),
       limitations: healthcare.describeLimitations(),
     },

@@ -34,6 +34,12 @@ whose metadata does not match the active episode, and uses the surviving order
 only to rank citations already present in the durable episode. Retrieved text
 cannot create a proposal, approve an action, or mutate healthcare state.
 
+The public Worker calls a bearer-authenticated AWS Node sidecar because the
+official Moss SDK uses native binaries. The sidecar loads the index and embedding
+model into a persistent local cache, applies the exact episode metadata filter,
+and returns only the normalized retrieval contract. Moss project credentials
+never enter the Worker, browser, logs, or repository.
+
 ## FHIR graph
 
 ```mermaid

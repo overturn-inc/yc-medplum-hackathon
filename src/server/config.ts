@@ -8,10 +8,12 @@ const configSchema = z.object({
   stediBaseUrl: z.string().url().optional(),
   stediApiKey: z.string().min(1).optional(),
   mossMode: z.enum(["off", "live"]),
-  mossExecution: z.enum(["cloud", "local"]),
+  mossExecution: z.enum(["cloud", "local", "sidecar"]),
   mossProjectId: z.string().min(1).optional(),
   mossProjectKey: z.string().min(1).optional(),
   mossIndexName: z.string().min(1).optional(),
+  mossSidecarUrl: z.string().url().optional(),
+  mossSidecarApiKey: z.string().min(1).optional(),
   medplumBaseUrl: z.string().url().optional(),
   medplumClientId: z.string().min(1).optional(),
   medplumClientSecret: z.string().min(1).optional(),
@@ -34,7 +36,12 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
   const agentMode = (env.AGENT_MODE as AgentMode) || "synthetic";
   const stediMode = env.STEDI_MODE === "test" ? "test" : "off";
   const mossMode = env.MOSS_MODE === "live" ? "live" : "off";
-  const mossExecution = env.MOSS_EXECUTION === "local" ? "local" : "cloud";
+  const mossExecution =
+    env.MOSS_EXECUTION === "local"
+      ? "local"
+      : env.MOSS_EXECUTION === "sidecar"
+        ? "sidecar"
+        : "cloud";
 
   const parsed = configSchema.safeParse({
     healthcareMode,
@@ -47,6 +54,8 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     mossProjectId: env.MOSS_PROJECT_ID,
     mossProjectKey: env.MOSS_PROJECT_KEY,
     mossIndexName: env.MOSS_INDEX_NAME,
+    mossSidecarUrl: env.MOSS_SIDECAR_URL,
+    mossSidecarApiKey: env.MOSS_SIDECAR_API_KEY,
     medplumBaseUrl: env.MEDPLUM_BASE_URL,
     medplumClientId: env.MEDPLUM_CLIENT_ID,
     medplumClientSecret: env.MEDPLUM_CLIENT_SECRET,
@@ -84,12 +93,27 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
     throw new Error("STEDI_MODE=test requires STEDI_API_KEY");
   }
 
+  if (config.mossMode === "live" && !config.mossIndexName) {
+    throw new Error("MOSS_MODE=live requires MOSS_INDEX_NAME");
+  }
+
   if (
     config.mossMode === "live" &&
-    (!config.mossProjectId || !config.mossProjectKey || !config.mossIndexName)
+    config.mossExecution !== "sidecar" &&
+    (!config.mossProjectId || !config.mossProjectKey)
   ) {
     throw new Error(
       "MOSS_MODE=live requires MOSS_PROJECT_ID, MOSS_PROJECT_KEY, and MOSS_INDEX_NAME",
+    );
+  }
+
+  if (
+    config.mossMode === "live" &&
+    config.mossExecution === "sidecar" &&
+    (!config.mossSidecarUrl || !config.mossSidecarApiKey)
+  ) {
+    throw new Error(
+      "MOSS_EXECUTION=sidecar requires MOSS_SIDECAR_URL and MOSS_SIDECAR_API_KEY",
     );
   }
 
@@ -105,7 +129,7 @@ export function publicAdapterStatus(config: ServerConfig): {
   stediConfigured: boolean;
   mossMode: "off" | "live";
   mossConfigured: boolean;
-  mossExecution: "cloud" | "local";
+  mossExecution: "cloud" | "local" | "sidecar";
 } {
   return {
     healthcareMode: config.healthcareMode,
@@ -122,7 +146,12 @@ export function publicAdapterStatus(config: ServerConfig): {
     mossMode: config.mossMode,
     mossConfigured:
       config.mossMode === "live" &&
-      Boolean(config.mossProjectId && config.mossProjectKey && config.mossIndexName),
+      Boolean(
+        config.mossIndexName &&
+          (config.mossExecution === "sidecar"
+            ? config.mossSidecarUrl && config.mossSidecarApiKey
+            : config.mossProjectId && config.mossProjectKey),
+      ),
     mossExecution: config.mossExecution,
   };
 }
