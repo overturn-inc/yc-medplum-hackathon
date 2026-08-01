@@ -105,7 +105,7 @@ until curl --fail --silent --show-error "https://${BFF_PUBLIC_HOST}/health/ready
 done
 
 job_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
-  --request POST "https://${BFF_PUBLIC_HOST}/v1/automation/jobs" \
+  --request POST "https://${BFF_PUBLIC_HOST}/v1/automation/v1/jobs" \
   --header 'Content-Type: application/json' \
   --data '{"action":"investigate_claim","idempotencyKey":"deploy-smoke","episodeId":"episode-encounter-a","sessionRevision":1,"episodeRevision":1}')"
 if [[ "${job_status}" != "401" ]]; then

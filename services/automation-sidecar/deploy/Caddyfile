@@ -11,9 +11,9 @@
 
     # Job-control API (create/poll/cancel/proof). Bearer auth is enforced by
     # the sidecar itself; Caddy only proxies the Authorization header
-    # through unchanged.
+    # through unchanged. The public prefix is stripped, preserving the
+    # sidecar's native /v1/jobs contract for server-to-server clients.
     handle_path /v1/automation/* {
-        rewrite * /v1{uri}
         reverse_proxy automation-sidecar:8090
     }
 
