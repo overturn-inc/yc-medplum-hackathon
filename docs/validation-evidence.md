@@ -1,15 +1,18 @@
 # Validation evidence
 
-Validated: 2026-08-01 12:03 PDT (public release)
+Validated: 2026-08-01 13:52 PDT (Moss integration and public release)
 
-Final verdict: **PASS** after the final Claude Design implementation, local aggregate
-gate, successful Sites deployment, public visual inspection, three earlier public
-mutation E2E runs, and a final full live run against release 20.
+Final verdict: **PASS** after the final Claude Design implementation, Moss live
+SDK and browser validation, local aggregate gate, successful Sites deployment,
+public inspection, three earlier public mutation E2E runs, and a final full live
+run against release 20.
 
 Public release: https://overturn-agentic-claims.argentum1450.chatgpt.site
 
-Public Sites release: version 20 from runtime commit
-`21a949acd983084b107fe29a2e373ac6de3e3215`.
+Moss integration release: Sites version 21 from runtime commit
+`556a7804b90b4db0a13b98062abe47b20f164279`. Moss code and encrypted credentials
+were deployed, but public `MOSS_MODE` is intentionally off while the hosted query
+endpoint returns 503. Release 20 remains the latest full public mutation E2E.
 
 ## Aggregate gate
 

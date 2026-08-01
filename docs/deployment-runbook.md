@@ -46,9 +46,11 @@ payer, or Stedi writes on the public path.
 
 Current public release: https://overturn-agentic-claims.argentum1450.chatgpt.site
 
-Validated public release: Sites version 20 from runtime commit
-`21a949acd983084b107fe29a2e373ac6de3e3215`; the full live mutation E2E passed
-with the `Agent: bff` assertion on 2026-08-01.
+Moss integration first shipped in Sites version 21 from runtime commit
+`556a7804b90b4db0a13b98062abe47b20f164279`. It contains the Moss retrieval
+integration; public Moss mode is temporarily off because the hosted query
+endpoint returned 503. The full live mutation E2E passed on release 20 with the
+`Agent: bff` assertion on 2026-08-01, and release 21 passed public config smoke.
 
 ## Connected adapters (optional)
 
