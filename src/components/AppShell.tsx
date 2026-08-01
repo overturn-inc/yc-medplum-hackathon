@@ -60,9 +60,8 @@ export function AppShell({
       >
         <div className="sidebar-scroll" data-testid="sidebar-scroll">
           <div className="brand">
-            <strong>Harborview PMS</strong>
+            <strong>Overturn</strong>
             <span>Agent-native billing workspace</span>
-            <span>Powered by Overturn</span>
           </div>
           <div className="nav-section-label">Workspace</div>
           <ul className="nav-list">

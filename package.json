@@ -27,6 +27,7 @@
     "seed:medplum": "tsx scripts/seed-medplum.ts",
     "test:medplum": "vitest run --config vitest.config.ts tests/medplum",
     "test:stedi:live": "node --env-file=.env.local --import tsx scripts/test-stedi-live.ts",
+    "test:medplum:live": "node --env-file=.env.local --import tsx scripts/test-medplum-live.ts",
     "seed:moss": "MOSS_DISABLE_TELEMETRY=1 node --env-file=.env.local --import tsx scripts/seed-moss.ts",
     "test:moss:live": "MOSS_DISABLE_TELEMETRY=1 node --env-file=.env.local --import tsx scripts/test-moss-live.ts"
   },

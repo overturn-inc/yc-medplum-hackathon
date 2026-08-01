@@ -40,17 +40,56 @@ export function assertActionAllowed(
   }
 
   switch (episode.fixtureKey) {
-    case "encounter-a":
+    case "encounter-a": {
+      if (actionType === "submit_claim") {
+        if (episode.transportState !== "unsent" || episode.submissionReceiptId) {
+          deny(
+            "encounter-a submit_claim is only allowed while unsent with no submission receipt",
+          );
+        }
+        return;
+      }
+      if (actionType === "request_reprocessing") {
+        if (
+          !episode.portalInvestigationReceiptId ||
+          !episode.voiceSessionReceiptId ||
+          episode.adjudicationState !== "denied" ||
+          episode.reprocessingReceiptId
+        ) {
+          deny(
+            "encounter-a request_reprocessing requires portal investigation and voice session " +
+              "connector receipts, a denied adjudication, and no existing reprocessing receipt",
+          );
+        }
+        return;
+      }
+      if (actionType === "submit_appeal") {
+        if (
+          !episode.denialUpheldReceiptId ||
+          episode.appealReceiptId ||
+          (episode.resolutionState !== "approval_required" &&
+            episode.resolutionState !== "investigating")
+        ) {
+          deny(
+            "encounter-a submit_appeal requires a denial-upheld connector receipt, no existing " +
+              "appeal receipt, and resolution approval_required or investigating",
+          );
+        }
+        return;
+      }
+      deny(
+        `encounter-a only allows submit_claim, request_reprocessing, or submit_appeal; got ${actionType}`,
+        400,
+      );
+      return;
+    }
     case "claim-a": {
       if (actionType !== "submit_claim") {
-        deny(
-          `${episode.fixtureKey} only allows submit_claim; got ${actionType}`,
-          400,
-        );
+        deny(`claim-a only allows submit_claim; got ${actionType}`, 400);
       }
       if (episode.transportState !== "unsent" || episode.submissionReceiptId) {
         deny(
-          `${episode.fixtureKey} submit_claim is only allowed while unsent with no submission receipt`,
+          "claim-a submit_claim is only allowed while unsent with no submission receipt",
         );
       }
       return;

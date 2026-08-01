@@ -45,7 +45,7 @@ export default async function DashboardPage() {
       <header className="page-header">
         <div>
           <h1>Practice overview</h1>
-          <p>Wednesday 15 July 2026 · Harborview Family Medicine · synthetic fixture data</p>
+          <p>Wednesday 15 July 2026 · Overturn demo practice · synthetic fixture data</p>
         </div>
         <span className="demo-state"><span aria-hidden className="status-dot" /> Demo ready</span>
       </header>

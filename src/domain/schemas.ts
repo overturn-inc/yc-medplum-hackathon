@@ -7,6 +7,7 @@
  * object so unknown/extra fields are rejected (no additionalProperties).
  */
 import { z } from "zod";
+import { HERO_STAGES } from "./hero";
 import type {
   ActionType,
   ActivityEvent,
@@ -19,6 +20,7 @@ import type {
   DemoSnapshot,
   DiscrepancyFinding,
   DomainEvent,
+  EligibilitySummary,
   EvidenceItem,
   ExecutionReceipt,
   FinancialProjection,
@@ -26,6 +28,8 @@ import type {
   ServiceLine,
   SourceObservation,
 } from "./types";
+
+export const heroStageSchema = z.enum(HERO_STAGES);
 
 /* ------------------------------------------------------------------ */
 /* Primitive enums                                                     */
@@ -226,6 +230,17 @@ export const evidenceItemSchema = z
   })
   .strict() satisfies z.ZodType<EvidenceItem>;
 
+export const eligibilitySummarySchema = z
+  .object({
+    checkId: z.string().min(1),
+    applicationMode: z.string().min(1),
+    activeCoverage: z.boolean(),
+    activeBenefitCount: z.number(),
+    planNames: z.array(z.string()),
+    hasRaw271: z.boolean(),
+  })
+  .strict() satisfies z.ZodType<EligibilitySummary>;
+
 export const discrepancyComparedSourceSchema = z
   .object({
     source: observationSourceSchema,
@@ -391,6 +406,14 @@ export const claimEpisodeSchema = z
     statusRefreshReceiptId: z.string().nullable().optional(),
     memberId: z.string().nullable().optional(),
     conversation: z.array(conversationMessageSchema).optional().default([]),
+    heroStage: heroStageSchema.optional(),
+    eligibilityReceiptId: z.string().nullable().optional(),
+    eligibilitySummary: eligibilitySummarySchema.nullable().optional(),
+    portalInvestigationReceiptId: z.string().nullable().optional(),
+    voiceSessionReceiptId: z.string().nullable().optional(),
+    denialUpheldReceiptId: z.string().nullable().optional(),
+    appealReceiptId: z.string().nullable().optional(),
+    appealConfirmationNumber: z.string().nullable().optional(),
   })
   .strict() satisfies z.ZodType<ClaimEpisode>;
 
@@ -597,6 +620,56 @@ const actionReservedEventSchema = z
   })
   .strict();
 
+const heroStageAdvancedEventSchema = z
+  .object({
+    type: z.literal("hero.stage.advanced"),
+    id: z.string().min(1),
+    at: z.string().min(1),
+    episodeId: z.string().min(1),
+    fromStage: z.string().min(1),
+    toStage: z.string().min(1),
+    receiptId: z.string().min(1).optional(),
+  })
+  .strict();
+
+const toolJobCompletedEventSchema = z
+  .object({
+    type: z.literal("tool_job.completed"),
+    id: z.string().min(1),
+    at: z.string().min(1),
+    episodeId: z.string().min(1),
+    jobId: z.string().min(1),
+    action: z.string().min(1),
+    receiptId: z.string().min(1),
+  })
+  .strict();
+
+const eligibilityCheckedEventSchema = z
+  .object({
+    type: z.literal("eligibility.checked"),
+    id: z.string().min(1),
+    at: z.string().min(1),
+    episodeId: z.string().min(1),
+    receiptId: z.string().min(1),
+    checkId: z.string().min(1),
+    activeCoverage: z.boolean(),
+  })
+  .strict();
+
+const appealSubmittedEventSchema = z
+  .object({
+    type: z.literal("appeal.submitted"),
+    id: z.string().min(1),
+    at: z.string().min(1),
+    episodeId: z.string().min(1),
+    artifactId: z.string().min(1),
+    receiptId: z.string().min(1),
+    confirmationNumber: z.string().min(1),
+    followUpAt: z.string().min(1),
+    idempotencyKey: z.string().min(1),
+  })
+  .strict();
+
 export const domainEventSchema = z.discriminatedUnion("type", [
   demoSessionResetEventSchema,
   proposalCreatedEventSchema,
@@ -615,6 +688,10 @@ export const domainEventSchema = z.discriminatedUnion("type", [
   claimCorrectedResubmittedEventSchema,
   documentationSentEventSchema,
   actionReservedEventSchema,
+  heroStageAdvancedEventSchema,
+  toolJobCompletedEventSchema,
+  eligibilityCheckedEventSchema,
+  appealSubmittedEventSchema,
 ]) satisfies z.ZodType<DomainEvent>;
 
 /* ------------------------------------------------------------------ */

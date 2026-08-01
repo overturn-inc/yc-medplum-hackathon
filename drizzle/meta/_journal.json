@@ -1,1 +1,1 @@
-{"version":"7","dialect":"sqlite","entries":[{"idx":0,"version":"7","when":1754000000000,"tag":"0001_init","breakpoints":true}]}
+{"version":"7","dialect":"sqlite","entries":[{"idx":0,"version":"7","when":1754000000000,"tag":"0001_init","breakpoints":true},{"idx":1,"version":"7","when":1754060000000,"tag":"0002_tool_jobs","breakpoints":true}]}

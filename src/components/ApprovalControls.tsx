@@ -23,6 +23,10 @@ const SUCCESS_MESSAGE: Record<
     `Corrected claim ${data.correctedClaimId} resubmitted. Receipt ${data.receiptId}.`,
   send_documentation: (data) =>
     `Documentation sent (${data.packetReference}). Receipt ${data.receiptId}. Next follow-up ${data.followUpAt}.`,
+  submit_appeal: (data) =>
+    data.receiptId
+      ? `Appeal submitted. Confirmation ${data.confirmationNumber ?? "pending"}. Receipt ${data.receiptId}. Next follow-up ${data.followUpAt}.`
+      : `Appeal job started; awaiting portal confirmation before the approval is consumed.`,
 };
 
 export function ApprovalControls({

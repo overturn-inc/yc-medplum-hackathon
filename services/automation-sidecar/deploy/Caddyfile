@@ -1,0 +1,32 @@
+{$BFF_PUBLIC_HOST} {
+    encode zstd gzip
+
+    @private_diagnostics path /diagnostics/*
+    respond @private_diagnostics 404
+
+    handle /v1/moss/query {
+        rewrite * /query
+        reverse_proxy moss-sidecar:8080
+    }
+
+    # Job-control API (create/poll/cancel/proof). Bearer auth is enforced by
+    # the sidecar itself; Caddy only proxies the Authorization header
+    # through unchanged.
+    handle_path /v1/automation/* {
+        rewrite * /v1{uri}
+        reverse_proxy automation-sidecar:8090
+    }
+
+    # Public fictional payer portal UI only. No job-control route is exposed
+    # here or by the sidecar under this prefix.
+    handle_path /northstar-portal/* {
+        rewrite * /portal{uri}
+        reverse_proxy automation-sidecar:8090
+    }
+
+    handle {
+        reverse_proxy api:8000 {
+            flush_interval -1
+        }
+    }
+}

@@ -113,5 +113,102 @@ export const episodeThreadBindings = sqliteTable(
   ],
 );
 
+/** Async tool jobs (browser/voice) scoped per session with revision fencing. */
+export const toolJobs = sqliteTable(
+  "tool_jobs",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id").notNull(),
+    sessionRevision: integer("session_revision").notNull(),
+    episodeId: text("episode_id").notNull(),
+    episodeRevision: integer("episode_revision").notNull(),
+    action: text("action").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    status: text("status").notNull(),
+    progressJson: text("progress_json").notNull(),
+    resultJson: text("result_json"),
+    errorJson: text("error_json"),
+    connectorReceiptJson: text("connector_receipt_json"),
+    proofRefsJson: text("proof_refs_json"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("tool_jobs_session_idempotency_unique").on(
+      table.sessionId,
+      table.idempotencyKey,
+    ),
+    index("tool_jobs_session_id_idx").on(table.sessionId),
+    index("tool_jobs_session_status_idx").on(table.sessionId, table.status),
+  ],
+);
+
+/** Ordered progress events for a tool job. */
+export const toolJobEvents = sqliteTable(
+  "tool_job_events",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    seq: integer("seq").notNull(),
+    at: text("at").notNull(),
+    phase: text("phase").notNull(),
+    message: text("message").notNull(),
+    proofRef: text("proof_ref"),
+  },
+  (table) => [
+    uniqueIndex("tool_job_events_job_seq_unique").on(table.jobId, table.seq),
+    index("tool_job_events_job_id_idx").on(table.jobId),
+    index("tool_job_events_session_id_idx").on(table.sessionId),
+  ],
+);
+
+/** Durable connector receipts that alone may advance hero/external state. */
+export const connectorReceipts = sqliteTable(
+  "connector_receipts",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id").notNull(),
+    jobId: text("job_id"),
+    episodeId: text("episode_id").notNull(),
+    action: text("action").notNull(),
+    provider: text("provider").notNull(),
+    confirmation: text("confirmation"),
+    payloadJson: text("payload_json").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("connector_receipts_session_id_unique").on(
+      table.sessionId,
+      table.id,
+    ),
+    index("connector_receipts_session_episode_idx").on(
+      table.sessionId,
+      table.episodeId,
+    ),
+  ],
+);
+
+/**
+ * Rate-limit windows that survive session reset so public abuse controls
+ * cannot be erased by demo reset.
+ */
+export const rateLimitWindows = sqliteTable(
+  "rate_limit_windows",
+  {
+    id: text("id").primaryKey(),
+    scope: text("scope").notNull(),
+    windowStart: text("window_start").notNull(),
+    count: integer("count").notNull(),
+  },
+  (table) => [
+    uniqueIndex("rate_limit_windows_scope_window_unique").on(
+      table.scope,
+      table.windowStart,
+    ),
+    index("rate_limit_windows_scope_idx").on(table.scope),
+  ],
+);
+
 /** Re-exported for callers that want a raw `CURRENT_TIMESTAMP`-style default without drifting from SQL. */
 export const nowSql = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;

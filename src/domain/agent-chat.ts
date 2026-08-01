@@ -110,6 +110,7 @@ export const ACTION_LABELS: Record<ProposableActionType, string> = {
   request_reprocessing: "request payer reprocessing",
   correct_and_resubmit: "correct and resubmit this claim",
   send_documentation: "send the requested documentation",
+  submit_appeal: "submit a formal appeal",
 };
 
 function citeEvidence(items: Array<EvidenceItem | undefined>): ChatCitation[] {
@@ -370,7 +371,7 @@ export function answerChatWithIntent(
     (episode.fixtureKey === "claim-e" && !!episode.documentationReceiptId);
   const suggestedActionType = actionAlreadyCompleted
     ? null
-    : defaultActionTypeForFixture(episode.fixtureKey);
+    : defaultActionTypeForFixture(episode.fixtureKey, episode);
 
   if (intent === "request_action") {
     if (episode.fixtureKey === "claim-b") {

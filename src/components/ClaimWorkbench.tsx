@@ -1,8 +1,10 @@
 import { AgentStation } from "@/components/AgentStation";
+import { HeroFlow } from "@/components/HeroFlow";
 import { StediEligibilityCheck } from "@/components/StediEligibilityCheck";
 import type { EpisodeView } from "@/domain/projector";
 import type { PreflightCheck } from "@/domain/preflight";
 import type { DomainEvent, SourceObservation } from "@/domain/types";
+import type { FhirPlaneStatus } from "@/server/fhir-plane";
 
 const LIFECYCLE_ORDER = [
   "Encounter",
@@ -56,6 +58,17 @@ function sourceStage(
   };
 }
 
+const SESSION_LEDGER_LABEL: Record<string, string> = {
+  d1: "Ledger: D1",
+  memory: "Ledger: In-memory",
+};
+
+const FHIR_PLANE_LABEL: Record<FhirPlaneStatus, string> = {
+  connected: "FHIR plane: Medplum connected",
+  unavailable: "FHIR plane: Medplum unavailable",
+  disabled: "FHIR plane: Disabled",
+};
+
 export function ClaimWorkbench({
   episode,
   preflight,
@@ -64,6 +77,9 @@ export function ClaimWorkbench({
   stediConfigured = false,
   mossConfigured = false,
   compactHeader = false,
+  sessionLedgerBackend,
+  fhirPlaneStatus,
+  payerWritesMode,
 }: {
   episode: EpisodeView;
   preflight?: PreflightCheck[] | null;
@@ -72,6 +88,9 @@ export function ClaimWorkbench({
   stediConfigured?: boolean;
   mossConfigured?: boolean;
   compactHeader?: boolean;
+  sessionLedgerBackend?: string;
+  fhirPlaneStatus?: FhirPlaneStatus;
+  payerWritesMode?: string;
 }) {
   const pms = latestObservation(episode, "pms");
   const remittance = latestObservation(episode, "remittance");
@@ -138,10 +157,29 @@ export function ClaimWorkbench({
           {episode.overlays.includes("approval_required") && <span className="badge">Approval required</span>}
           {episode.overlays.includes("follow_up_due") && <span className="badge warn">Follow-up due</span>}
         </div>
+
+        {(sessionLedgerBackend || fhirPlaneStatus || payerWritesMode) && (
+          <div className="badges" data-testid="system-plane-badges">
+            {sessionLedgerBackend && (
+              <span className="badge">
+                {SESSION_LEDGER_LABEL[sessionLedgerBackend] ?? `Ledger: ${sessionLedgerBackend}`}
+              </span>
+            )}
+            {fhirPlaneStatus && (
+              <span className={`badge ${fhirPlaneStatus === "unavailable" ? "warn" : ""}`}>
+                {FHIR_PLANE_LABEL[fhirPlaneStatus]}
+              </span>
+            )}
+            {payerWritesMode && <span className="badge">Payer writes: {humanize(payerWritesMode)}</span>}
+          </div>
+        )}
       </section>
 
       <div className="workbench-layout">
         <div className="workbench-main">
+          {episode.fixtureKey === "encounter-a" && (
+            <HeroFlow episode={episode} stediConfigured={stediConfigured} />
+          )}
           {episode.discrepancies.length > 0 ? (
             <section className="panel proof-panel discrepancy-proof" data-testid="discrepancy-panel">
               <header className="section-header compact">
@@ -186,7 +224,7 @@ export function ClaimWorkbench({
                 <article><span>PMS posting</span><strong>{money(episode.financial.posted)}</strong><small>{posting?.observedAt ?? "Timestamp unavailable"}</small><code>{posting?.evidenceReference ?? "No evidence"}</code></article>
               </div>
             </section>
-          ) : preflight ? (
+          ) : preflight && episode.fixtureKey !== "encounter-a" ? (
             <section className="panel proof-panel readiness-proof">
               <span className="eyebrow">Submission readiness</span>
               <h2>{preflight.every((check) => check.passed) ? "Ready for approval" : "Blocked before submission"}</h2>

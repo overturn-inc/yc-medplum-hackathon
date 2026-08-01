@@ -20,6 +20,11 @@ import {
   createMossSidecarRetrievalAdapter,
 } from "@/adapters/retrieval/moss";
 import { loadServerConfig, publicAdapterStatus } from "@/server/config";
+import {
+  classifyFhirPlaneStatus,
+  PAYER_WRITES_MODE,
+  sessionLedgerBackend,
+} from "@/server/fhir-plane";
 import { StoreDegradedError } from "@/server/store";
 import type { SessionRepository } from "@/server/repository";
 
@@ -96,6 +101,32 @@ export async function getDemoRuntime(store: SessionRepository) {
         })
     : null;
 
+  const adapterStatus = publicAdapterStatus({
+    healthcareMode,
+    agentMode,
+    medplumBaseUrl: process.env.MEDPLUM_BASE_URL,
+    medplumClientId: process.env.MEDPLUM_CLIENT_ID,
+    medplumClientSecret: process.env.MEDPLUM_CLIENT_SECRET,
+    medplumProjectId: process.env.MEDPLUM_PROJECT_ID,
+    bffBaseUrl: process.env.BFF_BASE_URL,
+    bffApiKey: process.env.BFF_API_KEY,
+    stediMode: process.env.STEDI_MODE === "test" ? "test" : "off",
+    stediBaseUrl: process.env.STEDI_BASE_URL,
+    stediApiKey: process.env.STEDI_API_KEY,
+    mossMode: process.env.MOSS_MODE === "live" ? "live" : "off",
+    mossExecution:
+      process.env.MOSS_EXECUTION === "local"
+        ? "local"
+        : process.env.MOSS_EXECUTION === "sidecar"
+          ? "sidecar"
+          : "cloud",
+    mossProjectId: process.env.MOSS_PROJECT_ID,
+    mossProjectKey: process.env.MOSS_PROJECT_KEY,
+    mossIndexName: process.env.MOSS_INDEX_NAME,
+    mossSidecarUrl: process.env.MOSS_SIDECAR_URL,
+    mossSidecarApiKey: process.env.MOSS_SIDECAR_API_KEY,
+  });
+
   return {
     store,
     healthcare,
@@ -103,31 +134,16 @@ export async function getDemoRuntime(store: SessionRepository) {
     actions,
     retrieval,
     config: {
-      ...publicAdapterStatus({
+      ...adapterStatus,
+      // `connected` is intentionally omitted here: it is only known once a
+      // live Medplum read/write has actually been attempted (see
+      // `buildDemoViewModel`), never guessed from config alone.
+      fhirPlaneStatus: classifyFhirPlaneStatus({
         healthcareMode,
-        agentMode,
-        medplumBaseUrl: process.env.MEDPLUM_BASE_URL,
-        medplumClientId: process.env.MEDPLUM_CLIENT_ID,
-        medplumClientSecret: process.env.MEDPLUM_CLIENT_SECRET,
-        medplumProjectId: process.env.MEDPLUM_PROJECT_ID,
-        bffBaseUrl: process.env.BFF_BASE_URL,
-        bffApiKey: process.env.BFF_API_KEY,
-        stediMode: process.env.STEDI_MODE === "test" ? "test" : "off",
-        stediBaseUrl: process.env.STEDI_BASE_URL,
-        stediApiKey: process.env.STEDI_API_KEY,
-        mossMode: process.env.MOSS_MODE === "live" ? "live" : "off",
-        mossExecution:
-          process.env.MOSS_EXECUTION === "local"
-            ? "local"
-            : process.env.MOSS_EXECUTION === "sidecar"
-              ? "sidecar"
-              : "cloud",
-        mossProjectId: process.env.MOSS_PROJECT_ID,
-        mossProjectKey: process.env.MOSS_PROJECT_KEY,
-        mossIndexName: process.env.MOSS_INDEX_NAME,
-        mossSidecarUrl: process.env.MOSS_SIDECAR_URL,
-        mossSidecarApiKey: process.env.MOSS_SIDECAR_API_KEY,
+        medplumConfigured: adapterStatus.medplumConfigured,
       }),
+      sessionLedgerBackend: sessionLedgerBackend(),
+      payerWritesMode: PAYER_WRITES_MODE,
       limitations: healthcare.describeLimitations(),
     },
   };
@@ -189,12 +205,16 @@ const buildDemoViewModel = async (store: SessionRepository) => {
         healthcareMode: "medplum",
       };
       connectedWritesAvailable = false;
+      // Only a real, successful Medplum read may report the FHIR plane as
+      // connected; config alone (see `getDemoRuntime`) can only say whether
+      // it is configured.
+      runtime.config.fhirPlaneStatus = "connected";
     } catch (error) {
       const sanitized = sanitizeMedplumError(error);
       return {
         ok: false as const,
         error: sanitized.message,
-        config: runtime.config,
+        config: { ...runtime.config, fhirPlaneStatus: "unavailable" as const },
       };
     }
   } else {
@@ -248,6 +268,7 @@ export async function getEpisodeView(episodeId: string, store: SessionRepository
   if (runtime.healthcare.mode === "medplum") {
     try {
       snapshot = await runtime.healthcare.readSnapshot();
+      runtime.config.fhirPlaneStatus = "connected";
     } catch {
       return null;
     }

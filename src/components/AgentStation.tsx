@@ -39,6 +39,11 @@ const ACTION_META: Record<ProposableActionType, { target: string; impact: string
     target: "Synthetic payer attachment channel",
     impact: "Sends the requested packet and schedules follow-up. It does not adjudicate the claim.",
   },
+  submit_appeal: {
+    target: "Fictional Northstar payer portal (authenticated automation sidecar)",
+    impact:
+      "Submits a formal appeal packet and captures a portal confirmation number. It does not guarantee the appeal is granted.",
+  },
 };
 
 function formatTimestamp(iso: string): string {
@@ -70,7 +75,7 @@ export function AgentStation({
 
   const conversation = episode.conversation ?? [];
   const suggested = SUGGESTED_QUESTIONS[episode.fixtureKey] ?? [];
-  const defaultAction = defaultActionTypeForFixture(episode.fixtureKey);
+  const defaultAction = defaultActionTypeForFixture(episode.fixtureKey, episode);
   const actionType: ProposableActionType =
     (episode.proposal?.actionType as ProposableActionType | undefined) ??
     defaultAction ??

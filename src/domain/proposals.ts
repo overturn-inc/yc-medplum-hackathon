@@ -6,7 +6,7 @@ import type { AgentProposal, ClaimEpisode } from "./types";
 
 /**
  * ActionTypes with a deterministic local proposal builder
- * (submit_appeal / post_payment have none yet).
+ * (post_payment has none yet).
  *
  * `refresh_payer_status` is deliberately NOT here: claim-b's payer status
  * refresh is a dedicated read-only, non-approval action executed directly
@@ -229,6 +229,94 @@ export function buildSendDocumentationProposal(episode: ClaimEpisode): AgentProp
   };
 }
 
+/**
+ * Formal appeal packet for the guided hero claim (encounter-a). Built only
+ * from exact evidence references already durable on the episode -- the
+ * portal denial snapshot, the Deepgram voice evidence, the reprocessing
+ * artifact/receipt, and the denial-upheld recheck -- plus any authorization
+ * or 277 evidence the episode happens to carry. Never invents a reference
+ * that is not already present as episode evidence.
+ */
+export function buildAppealProposal(episode: ClaimEpisode): AgentProposal {
+  const denialEvidence = episode.evidence.find(
+    (e) => e.kind === "portal_snapshot" && !e.title.toLowerCase().includes("upheld"),
+  );
+  const upheldEvidence = episode.evidence.find((e) =>
+    e.title.toLowerCase().includes("upheld"),
+  );
+  const voiceEvidence = episode.evidence.find((e) =>
+    e.title.toLowerCase().includes("voice"),
+  );
+  const reprocessingArtifact = episode.evidence.find(
+    (e) => e.kind === "artifact" && e.title.toLowerCase().includes("reprocessing"),
+  );
+  const authEvidence = episode.evidence.find((e) => e.kind === "authorization");
+  const raw277Evidence = episode.evidence.find((e) => e.kind === "raw_277");
+
+  const references = {
+    denial: denialEvidence?.reference ?? null,
+    authorization: authEvidence?.reference ?? null,
+    raw277: raw277Evidence?.reference ?? null,
+    portal: denialEvidence?.reference ?? null,
+    voice: voiceEvidence?.reference ?? null,
+    reprocessing: reprocessingArtifact?.reference ?? null,
+    upheld: upheldEvidence?.reference ?? null,
+  };
+
+  const message = [
+    `Subject: Formal appeal for claim ${episode.claimId ?? episode.id}`,
+    "",
+    `Patient: ${episode.patientName}`,
+    `Date of service: ${episode.dateOfService}`,
+    `Payer claim reference: ${episode.claimControlNumber ?? episode.claimId}`,
+    "",
+    "This is a formal appeal of the denial upheld after reprocessing recheck.",
+    references.denial ? `Original portal denial: ${references.denial}` : null,
+    references.reprocessing ? `Reprocessing request/artifact: ${references.reprocessing}` : null,
+    references.voice ? `Voice session evidence: ${references.voice}` : null,
+    references.upheld ? `Denial-upheld recheck: ${references.upheld}` : null,
+    references.authorization ? `Authorization on file: ${references.authorization}` : null,
+    references.raw277 ? `Clearinghouse 277: ${references.raw277}` : null,
+    "",
+    "We request the payer overturn the denial and reprocess this claim for payment given the " +
+      "attached authorization and evidence packet.",
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+
+  const payload = {
+    action: "submit_appeal",
+    episodeId: episode.id,
+    claimId: episode.claimId,
+    references,
+    message,
+    revision: episode.revision,
+  };
+
+  const payloadDigest = digestPayload(payload);
+  return {
+    id: `proposal-appeal-${episode.id}`,
+    episodeId: episode.id,
+    actionType: "submit_appeal",
+    title: "Submit formal appeal",
+    whatIFound:
+      "The synthetic denial was upheld after reprocessing recheck; a formal appeal is the next step.",
+    evidenceUsed: Object.values(references).filter((ref): ref is string => !!ref),
+    proposedAction:
+      "Submit a formal appeal packet to the Northstar payer portal citing denial, reprocessing, and voice evidence.",
+    artifactPreview: message,
+    payloadDigest,
+    episodeRevision: episode.revision,
+    fingerprint: buildApprovalFingerprint({
+      actionType: "submit_appeal",
+      episodeId: episode.id,
+      payloadDigest,
+      episodeRevision: episode.revision,
+    }),
+    createdAt: getDemoClock(),
+  };
+}
+
 /** Deterministic builder dispatch for every action type with a local proposal. */
 export const PROPOSAL_BUILDERS: Record<
   ProposableActionType,
@@ -238,6 +326,7 @@ export const PROPOSAL_BUILDERS: Record<
   request_reprocessing: buildReprocessingProposal,
   correct_and_resubmit: buildCorrectAndResubmitProposal,
   send_documentation: buildSendDocumentationProposal,
+  submit_appeal: buildAppealProposal,
 };
 
 /**

@@ -33,7 +33,7 @@ export async function POST(request: Request) {
         NextResponse.json({ error: "Episode not found" }, { status: 404 }),
       );
     }
-    const serverAction = defaultActionTypeForFixture(episode.fixtureKey);
+    const serverAction = defaultActionTypeForFixture(episode.fixtureKey, episode);
     if (body.actionType && body.actionType !== serverAction) {
       return withCookie(
         NextResponse.json(

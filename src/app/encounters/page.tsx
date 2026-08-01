@@ -53,6 +53,9 @@ export default async function EncountersPage({
               agentMode={model.config.agentMode}
               stediConfigured={model.config.stediConfigured}
               mossConfigured={model.config.mossConfigured}
+              sessionLedgerBackend={model.config.sessionLedgerBackend}
+              fhirPlaneStatus={model.config.fhirPlaneStatus}
+              payerWritesMode={model.config.payerWritesMode}
               compactHeader
             />
           </section>

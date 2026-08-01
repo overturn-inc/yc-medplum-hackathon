@@ -29,6 +29,9 @@ export default async function ClaimDetailPage({
         agentMode={view.config.agentMode}
         stediConfigured={view.config.stediConfigured}
         mossConfigured={view.config.mossConfigured}
+        sessionLedgerBackend={view.config.sessionLedgerBackend}
+        fhirPlaneStatus={view.config.fhirPlaneStatus}
+        payerWritesMode={view.config.payerWritesMode}
       />
     </main>
   );

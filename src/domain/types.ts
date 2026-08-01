@@ -1,5 +1,7 @@
 /** Multi-axis claim episode domain types. */
 
+import type { HeroStage } from "./hero";
+
 export type EncounterState =
   | "scheduled"
   | "arrived"
@@ -216,6 +218,20 @@ export interface ActivityEvent {
   synthetic: boolean;
 }
 
+/**
+ * Normalized Stedi 270/271 eligibility result durably persisted on the
+ * episode. Deliberately excludes raw X12; `hasRaw271` only records that a
+ * 271 payload was returned, never its contents.
+ */
+export interface EligibilitySummary {
+  checkId: string;
+  applicationMode: string;
+  activeCoverage: boolean;
+  activeBenefitCount: number;
+  planNames: string[];
+  hasRaw271: boolean;
+}
+
 export interface ClaimEpisode {
   id: string;
   fixtureKey:
@@ -285,6 +301,22 @@ export interface ClaimEpisode {
   memberId?: string | null;
   /** Conversational agent turns scoped to this episode. */
   conversation?: ConversationMessage[];
+  /** Guided hero stage for encounter-a only. */
+  heroStage?: HeroStage;
+  /** Durable Stedi eligibility receipt id (normalized; no raw X12). */
+  eligibilityReceiptId?: string | null;
+  /** Normalized eligibility summary persisted alongside the receipt id; never the raw 271. */
+  eligibilitySummary?: EligibilitySummary | null;
+  /** Durable Northstar portal investigation receipt id. */
+  portalInvestigationReceiptId?: string | null;
+  /** Durable Deepgram voice session receipt id. */
+  voiceSessionReceiptId?: string | null;
+  /** Durable portal recheck receipt confirming denial upheld. */
+  denialUpheldReceiptId?: string | null;
+  /** Durable appeal submission receipt id. */
+  appealReceiptId?: string | null;
+  /** Fictional portal appeal confirmation number. */
+  appealConfirmationNumber?: string | null;
 }
 
 export interface DemoSnapshot {
@@ -454,4 +486,42 @@ export type DomainEvent =
       actionType: ActionType;
       clientRequestId: string;
       reservationId: string;
+    }
+  | {
+      type: "hero.stage.advanced";
+      id: string;
+      at: string;
+      episodeId: string;
+      fromStage: string;
+      toStage: string;
+      receiptId?: string;
+    }
+  | {
+      type: "tool_job.completed";
+      id: string;
+      at: string;
+      episodeId: string;
+      jobId: string;
+      action: string;
+      receiptId: string;
+    }
+  | {
+      type: "eligibility.checked";
+      id: string;
+      at: string;
+      episodeId: string;
+      receiptId: string;
+      checkId: string;
+      activeCoverage: boolean;
+    }
+  | {
+      type: "appeal.submitted";
+      id: string;
+      at: string;
+      episodeId: string;
+      artifactId: string;
+      receiptId: string;
+      confirmationNumber: string;
+      followUpAt: string;
+      idempotencyKey: string;
     };

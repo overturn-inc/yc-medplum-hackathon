@@ -2002,6 +2002,165 @@ td small {
   }
 }
 
+.hero-flow {
+  display: grid;
+  gap: 10px;
+}
+
+.hero-stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hero-step {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px 4px 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 600;
+}
+
+.hero-step-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--line);
+  color: var(--ink-2);
+  font-size: 0.6rem;
+}
+
+.hero-step-done {
+  border-color: #c2e1ce;
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.hero-step-done .hero-step-marker {
+  background: var(--green);
+  color: #fff;
+}
+
+.hero-step-current {
+  border-color: var(--teal);
+  background: var(--teal-soft);
+  color: var(--teal);
+}
+
+.hero-step-current .hero-step-marker {
+  background: var(--teal);
+  color: #fff;
+}
+
+.hero-cta {
+  display: grid;
+  gap: 8px;
+}
+
+.tool-job-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.tool-job-run {
+  display: grid;
+  gap: 8px;
+}
+
+.tool-job-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-job-progress {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tool-job-progress li {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.5fr) minmax(0, 1fr);
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #f6f8f6;
+  font-size: 0.66rem;
+}
+
+.tool-job-receipt {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid #c2e1ce;
+  border-radius: 6px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 0.7rem;
+}
+
+.tool-job-receipt code {
+  color: var(--ink-2);
+}
+
+.tool-job-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px 12px;
+  margin: 4px 0 0;
+}
+
+.tool-job-facts div {
+  display: grid;
+}
+
+.tool-job-facts dt {
+  color: var(--muted);
+  font-size: 0.58rem;
+  text-transform: uppercase;
+}
+
+.tool-job-facts dd {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.68rem;
+}
+
+.tool-job-transcript {
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border-radius: 6px;
+  background: var(--panel-soft);
+  font-size: 0.7rem;
+}
+
+.tool-job-proofs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tool-job-proof-image {
+  max-width: 220px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
 @media (max-width: 1080px) {
   .workbench-layout {
     grid-template-columns: 1fr;
@@ -2470,4 +2629,71 @@ td small {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
+}
+.hero-flow {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(0, 2fr);
+  gap: 24px;
+  align-items: center;
+  margin: 16px 0;
+}
+
+.hero-flow-copy h2 {
+  margin: 4px 0 6px;
+  text-transform: capitalize;
+}
+
+.hero-flow-copy p {
+  color: var(--muted, #5f6b67);
+}
+
+.hero-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(78px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hero-steps li {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  color: #7a827f;
+  min-width: 0;
+}
+
+.hero-steps li > span {
+  display: grid;
+  place-items: center;
+  flex: 0 0 24px;
+  height: 24px;
+  border: 1px solid #d6d9d7;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.hero-steps small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+
+.hero-steps .done,
+.hero-steps .active {
+  color: #0f5c55;
+  font-weight: 650;
+}
+
+.hero-steps .done > span,
+.hero-steps .active > span {
+  border-color: #0f5c55;
+  background: #eff8f5;
+}
+
+@media (max-width: 900px) {
+  .hero-flow { grid-template-columns: 1fr; }
+  .hero-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

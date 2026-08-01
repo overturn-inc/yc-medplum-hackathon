@@ -9,12 +9,16 @@ import {
 } from "@/domain/approval";
 import { assertActionAllowed } from "@/domain/action-policy";
 import { getDemoClock, addDays } from "@/domain/clock";
+import { deriveHeroStage } from "@/domain/hero";
 import {
+  buildAppealAuditEvent,
+  buildAppealProvenance,
   buildReprocessingAuditEvent,
   buildReprocessingProvenance,
   buildSubmissionAuditEvent,
 } from "@/domain/fhir-audit";
 import { runPreflight, preflightReady } from "@/domain/preflight";
+import { runApprovalGatedToolJob } from "@/server/tool-jobs";
 import { buildClaimResource } from "@/domain/fixtures";
 import {
   buildProposalForAction,
@@ -27,6 +31,7 @@ import type {
   ActivityEvent,
   ClaimEpisode,
   DomainEvent,
+  EligibilitySummary,
   ExecutionReceipt,
   SourceObservation,
 } from "@/domain/types";
@@ -35,6 +40,16 @@ import type { AgentAdapter } from "@/adapters/agent/types";
 import { createSyntheticAgentAdapter } from "@/adapters/agent/synthetic";
 
 export type { ProposableActionType } from "@/domain/proposals";
+
+/** Normalized Stedi 270/271 fields the eligibility route may persist; never raw X12. */
+export interface EligibilityCheckInput {
+  checkId: string;
+  applicationMode: string;
+  activeCoverage: boolean;
+  activeBenefitCount: number;
+  planNames: string[];
+  hasRaw271: boolean;
+}
 
 function activity(
   episodeId: string,
@@ -120,7 +135,7 @@ export class ActionService {
       const episode = await this.store.getEpisode(episodeId);
       if (!episode) throw Object.assign(new Error("Episode not found"), { status: 404 });
 
-      const resolvedAction = action ?? defaultActionTypeForFixture(episode.fixtureKey);
+      const resolvedAction = action ?? defaultActionTypeForFixture(episode.fixtureKey, episode);
       if (!resolvedAction) {
         throw Object.assign(
           new Error(
@@ -137,25 +152,48 @@ export class ActionService {
       };
       const proposal = buildProposalForAction(resolvedAction, bumped);
 
+      // Encounter-a's submit_appeal proposal is the trigger for the
+      // appeal_ready hero stage (see `deriveHeroStage`): the guided flow's
+      // `prepare_appeal` hero action only creates this proposal, so the
+      // stage must be advanced explicitly here rather than left at
+      // whatever `heroStage` a prior tool job (e.g. denial_upheld) set.
+      const fromStage =
+        episode.fixtureKey === "encounter-a" ? deriveHeroStage(episode) : null;
+      const advancesHeroStage =
+        fromStage !== null && resolvedAction === "submit_appeal" && fromStage !== "appeal_ready";
+
       const next = {
         ...bumped,
         proposal,
         resolutionState: "approval_required" as const,
         agentAction: proposal.title,
+        ...(advancesHeroStage ? { heroStage: "appeal_ready" as const } : {}),
       };
       next.activities = [
         ...episode.activities,
         activity(episodeId, "proposal.created", `Proposal created: ${proposal.title}`),
       ];
-      const event: DomainEvent = {
-        type: "proposal.created",
-        id: `event-proposal-${proposal.id}-${Math.random().toString(36).slice(2, 7)}`,
-        at: getDemoClock(),
-        episodeId,
-        proposalId: proposal.id,
-      };
+      const events: DomainEvent[] = [
+        {
+          type: "proposal.created",
+          id: `event-proposal-${proposal.id}-${Math.random().toString(36).slice(2, 7)}`,
+          at: getDemoClock(),
+          episodeId,
+          proposalId: proposal.id,
+        },
+      ];
+      if (advancesHeroStage) {
+        events.push({
+          type: "hero.stage.advanced",
+          id: `event-hero-appeal-ready-${proposal.id}`,
+          at: getDemoClock(),
+          episodeId,
+          fromStage: fromStage!,
+          toStage: "appeal_ready",
+        });
+      }
       this.store.replaceEpisode(next);
-      this.store.appendEvent(event);
+      for (const event of events) this.store.appendEvent(event);
       const committed = await this.store.commit();
       return {
         snapshot: committed,
@@ -291,9 +329,9 @@ export class ActionService {
           actionType: input.actionType,
         });
         if (!reservation.reserved) {
-          const snapshot = await this.store.getSnapshot();
-          await this.store.abortMutation();
           if (reservation.existingReceiptId) {
+            const snapshot = await this.store.getSnapshot();
+            await this.store.abortMutation();
             return {
               snapshot,
               receiptId: reservation.existingReceiptId,
@@ -301,14 +339,21 @@ export class ActionService {
               approvalScope: proposalApprovalFields(episode.proposal),
             };
           }
-          return {
-            snapshot,
-            receiptId: null,
-            pendingVerification: true,
-            message:
-              "This action is already being executed for the exact same idempotency key; no second execution was started.",
-            idempotent: false,
-          };
+          if (input.actionType !== "submit_appeal") {
+            const snapshot = await this.store.getSnapshot();
+            await this.store.abortMutation();
+            return {
+              snapshot,
+              receiptId: null,
+              pendingVerification: true,
+              message:
+                "This action is already being executed for the exact same idempotency key; no second execution was started.",
+              idempotent: false,
+            };
+          }
+          // Appeal execution is receipt-first. A prior reservation without a
+          // domain receipt means the same connector job must be polled and
+          // reconciled below, never created a second time.
         }
       }
 
@@ -336,6 +381,13 @@ export class ActionService {
           );
         case "send_documentation":
           return await this.executeSendDocumentation(
+            episode,
+            receipt.id,
+            receipt.idempotencyKey,
+            input.scope,
+          );
+        case "submit_appeal":
+          return await this.executeSubmitAppeal(
             episode,
             receipt.id,
             receipt.idempotencyKey,
@@ -422,7 +474,11 @@ export class ActionService {
     }
 
     const at = getDemoClock();
-    const claimId = `CLM-EA-${episode.id.slice(-4).toUpperCase()}`;
+    // Fixed synthetic claim id aligned with the Northstar portal allowlist.
+    const claimId =
+      episode.fixtureKey === "encounter-a"
+        ? "CLM-EA-1001"
+        : `CLM-EA-${episode.id.slice(-4).toUpperCase()}`;
     const receiptId = `receipt-submit-${episode.id}`;
     const execution: ExecutionReceipt = {
       id: receiptId,
@@ -431,7 +487,8 @@ export class ActionService {
       actionType: "submit_claim",
       idempotencyKey,
       outcome: "success",
-      message: "Synthetic clearinghouse accepted transmission",
+      message:
+        "Simulated Stedi clearinghouse rail accepted transmission (not a live 837P)",
       executedAt: at,
       evidenceReference: `ClaimResponse/${receiptId}`,
     };
@@ -454,6 +511,9 @@ export class ActionService {
       agentAction: null,
       proposal: null,
       submissionReceiptId: receiptId,
+      ...(episode.fixtureKey === "encounter-a"
+        ? { heroStage: "claim_submitted" as const }
+        : {}),
       claimControlNumber: `CN-EA-${episode.id.slice(-4).toUpperCase()}`,
       revision: episode.revision + 1,
       lastVerifiedAt: at,
@@ -787,7 +847,7 @@ export class ActionService {
       const observationId = `obs-${episode.id}-payer-refresh-${at}`;
       const evidenceReference = `DocumentReference/doc-portal-refresh-${episode.id}-${at}`;
 
-      const next: ClaimEpisode = {
+      let next: ClaimEpisode = {
         ...episode,
         // adjudicationState intentionally unchanged: a status refresh only
         // re-confirms the existing payer status, it never infers paid, and
@@ -832,6 +892,14 @@ export class ActionService {
         evidenceReference,
         synthetic: true,
       });
+
+      // Eligibility evidence advances the episode revision. Re-sign the
+      // existing submit proposal against that exact revision so Allow once
+      // does not reject the freshly verified preflight as stale.
+      if (next.proposal?.actionType === "submit_claim") {
+        const proposal = buildProposalForAction("submit_claim", next);
+        next = { ...next, proposal, agentAction: proposal.title };
+      }
 
       const event: DomainEvent = {
         type: "status.refreshed",
@@ -1121,6 +1189,424 @@ export class ActionService {
       followUpAt,
       idempotent: false,
     };
+  }
+
+  /**
+   * Encounter A: submit the formal appeal. Allow once starts (or resumes,
+   * for a duplicate idempotencyKey) the browser tool job against the
+   * fictional Northstar portal via `runApprovalGatedToolJob` -- deliberately
+   * NOT `ToolJobService.create()`, which would deadlock against this
+   * service's own `store.withMutationLock` (see that function's docstring).
+   * The approval is only consumed once a connector receipt with a
+   * confirmation exists; while the job is still running, this returns a
+   * pending-verification result and leaves the proposal in place for retry.
+   */
+  private async executeSubmitAppeal(
+    episode: ClaimEpisode,
+    approvalId: string,
+    idempotencyKey: string,
+    scope: ClientApprovalScope,
+  ) {
+    const snapshot = await this.store.getSnapshot();
+    const { receipt, terminal, publicJob } = await runApprovalGatedToolJob({
+      sessionId: this.store.sessionId,
+      sessionRevision: snapshot.sessionRevision,
+      episode,
+      action: "submit_appeal",
+      idempotencyKey,
+    });
+
+    if (!receipt) {
+      if (!terminal) {
+        return this.markPendingVerification(
+          episode,
+          "submit_appeal",
+          idempotencyKey,
+          "Appeal submission job is still running; no portal confirmation yet. Retry once complete.",
+        );
+      }
+      throw Object.assign(
+        new Error(publicJob.error?.message ?? "Appeal submission failed"),
+        { status: 502 },
+      );
+    }
+
+    const confirmationNumber = receipt.confirmation ?? receipt.id;
+    const at = getDemoClock();
+    const claimId = episode.claimId ?? `CLM-${episode.id}`;
+    const artifactId = `DocumentReference/artifact-appeal-${episode.id}`;
+    const followUpAt = addDays(at, 14);
+    const fromStage = deriveHeroStage(episode);
+    const provenance = buildAppealProvenance({
+      episodeId: episode.id,
+      claimId,
+      artifactId,
+      receiptId: receipt.id,
+      confirmationNumber,
+      at,
+    });
+    const audit = buildAppealAuditEvent({
+      episodeId: episode.id,
+      claimId,
+      artifactId,
+      receiptId: receipt.id,
+      confirmationNumber,
+      at,
+    });
+    const provenanceId = `Provenance/${provenance.id}`;
+    const auditId = `AuditEvent/${audit.id}`;
+    const message = episode.proposal?.artifactPreview ?? "";
+
+    const next: ClaimEpisode = {
+      ...episode,
+      resolutionState: "appealed",
+      adjudicationState: "denied",
+      issue: `Formal appeal submitted (confirmation ${confirmationNumber}); awaiting payer review by ${followUpAt}`,
+      agentAction: null,
+      proposal: null,
+      appealReceiptId: receipt.id,
+      appealConfirmationNumber: confirmationNumber,
+      heroStage: "appeal_submitted",
+      nextFollowUpAt: followUpAt,
+      revision: episode.revision + 1,
+      lastVerifiedAt: at,
+      fhirResources: [
+        ...(episode.fhirResources ?? []),
+        provenance as unknown as Record<string, unknown>,
+        audit as unknown as Record<string, unknown>,
+      ],
+      evidence: [
+        ...episode.evidence,
+        {
+          id: `ev-artifact-appeal-${episode.id}`,
+          title: "Formal appeal packet",
+          kind: "artifact",
+          reference: artifactId,
+          summary: message.slice(0, 180),
+          synthetic: true,
+          observedAt: at,
+        },
+        {
+          id: `ev-${receipt.id}`,
+          title: "Northstar appeal confirmation",
+          kind: "receipt",
+          reference: `ClaimResponse/${receipt.id}`,
+          summary: receipt.summary,
+          synthetic: true,
+          observedAt: at,
+        },
+      ],
+      activities: [
+        ...episode.activities,
+        activity(episode.id, "approval.consumed", "Allow once consumed for formal appeal", at),
+        activity(episode.id, "artifact.created", `Created ${artifactId}`, at),
+        activity(
+          episode.id,
+          "appeal.submitted",
+          `Appeal submitted; Northstar confirmation ${confirmationNumber}`,
+          at,
+        ),
+        activity(episode.id, "followup.scheduled", `Next follow-up ${followUpAt}`, at),
+        activity(episode.id, "provenance.created", `Created ${provenanceId}`, at),
+        activity(episode.id, "audit.created", `Created ${auditId}`, at),
+      ],
+    };
+
+    const events: DomainEvent[] = [
+      {
+        type: "approval.consumed",
+        id: `event-approval-${approvalId}`,
+        at,
+        episodeId: episode.id,
+        approvalId,
+        actionType: "submit_appeal",
+        idempotencyKey,
+        proposalId: scope.proposalId,
+        payloadDigest: scope.payloadDigest,
+        episodeRevision: scope.episodeRevision,
+        fingerprint: scope.fingerprint,
+        receiptId: receipt.id,
+      },
+      {
+        type: "artifact.created",
+        id: `event-artifact-appeal-${episode.id}`,
+        at,
+        episodeId: episode.id,
+        artifactId,
+      },
+      {
+        type: "appeal.submitted",
+        id: `event-appeal-${receipt.id}`,
+        at,
+        episodeId: episode.id,
+        artifactId,
+        receiptId: receipt.id,
+        confirmationNumber,
+        followUpAt,
+        idempotencyKey,
+      },
+      {
+        type: "provenance.created",
+        id: `event-prov-appeal-${episode.id}`,
+        at,
+        episodeId: episode.id,
+        provenanceId,
+      },
+      {
+        type: "audit.created",
+        id: `event-audit-appeal-${episode.id}`,
+        at,
+        episodeId: episode.id,
+        auditId,
+      },
+      {
+        type: "hero.stage.advanced",
+        id: `event-hero-appeal-${episode.id}`,
+        at,
+        episodeId: episode.id,
+        fromStage,
+        toStage: "appeal_submitted",
+        receiptId: receipt.id,
+      },
+    ];
+
+    this.store.replaceEpisode(next);
+    for (const event of events) this.store.appendEvent(event);
+    await this.store.rememberExecution(idempotencyKey, receipt.id);
+    return {
+      snapshot: await this.store.commit(),
+      receiptId: receipt.id,
+      confirmationNumber,
+      artifactId,
+      followUpAt,
+      provenanceId,
+      auditId,
+      idempotent: false,
+    };
+  }
+
+  /**
+   * Deterministic, connector-free follow-through: an accepted claim with no
+   * remittance within the expected window is overdue. Never infers paid or
+   * denied; only records that remittance is expected and overdue, which is
+   * what makes `investigate_portal` (a real browser job) proposable next.
+   */
+  async advanceHeroFollowThrough(episodeId: string) {
+    return this.store.withMutationLock(() =>
+      this.advanceHeroFollowThroughUnlocked(episodeId),
+    );
+  }
+
+  private async advanceHeroFollowThroughUnlocked(episodeId: string) {
+    await this.store.beginMutation();
+    try {
+      const episode = await this.store.getEpisode(episodeId);
+      if (!episode) throw Object.assign(new Error("Episode not found"), { status: 404 });
+      if (episode.fixtureKey !== "encounter-a") {
+        throw Object.assign(
+          new Error("Follow-through is only available for the guided hero claim"),
+          { status: 400 },
+        );
+      }
+      const fromStage = deriveHeroStage(episode);
+      if (fromStage !== "claim_submitted") {
+        throw Object.assign(
+          new Error(`Follow-through requires hero stage claim_submitted; currently ${fromStage}`),
+          { status: 409 },
+        );
+      }
+
+      const at = getDemoClock();
+      const followUpAt = addDays(at, 10);
+      const evidenceReference = `Task/followup-${episode.id}`;
+      const next: ClaimEpisode = {
+        ...episode,
+        adjudicationState: "accepted_for_processing",
+        remittanceState: "expected",
+        resolutionState: "monitoring",
+        heroStage: "accepted_overdue",
+        issue: "Accepted for processing; remittance overdue with no payer response",
+        agentAction: "Investigate payer portal",
+        nextFollowUpAt: followUpAt,
+        revision: episode.revision + 1,
+        lastVerifiedAt: at,
+        evidence: [
+          ...episode.evidence,
+          {
+            id: `ev-overdue-${episode.id}`,
+            title: "Overdue remittance check",
+            kind: "note",
+            reference: evidenceReference,
+            summary:
+              "No remittance received within the expected window; a payer portal investigation is required.",
+            synthetic: true,
+            observedAt: at,
+          },
+        ],
+        activities: [
+          ...episode.activities,
+          activity(
+            episode.id,
+            "hero.stage.advanced",
+            "Advanced to accepted overdue (deterministic follow-through, no connector)",
+            at,
+          ),
+        ],
+      };
+
+      pushObservation(next, {
+        id: `obs-${episode.id}-payer-overdue`,
+        episodeId: episode.id,
+        source: "payer",
+        rawStatus: "Accepted for processing; no remittance",
+        normalizedStatus: "accepted_for_processing",
+        observedAt: at,
+        lastVerifiedAt: at,
+        evidenceReference,
+        synthetic: true,
+      });
+
+      const event: DomainEvent = {
+        type: "hero.stage.advanced",
+        id: `event-hero-followthrough-${episode.id}-${at}`,
+        at,
+        episodeId: episode.id,
+        fromStage,
+        toStage: "accepted_overdue",
+      };
+
+      this.store.replaceEpisode(next);
+      this.store.appendEvent(event);
+      return {
+        snapshot: await this.store.commit(),
+        heroStage: "accepted_overdue" as const,
+      };
+    } catch (error) {
+      await this.store.abortMutation();
+      throw error;
+    }
+  }
+
+  /**
+   * Persists a normalized Stedi 270/271 result as durable episode evidence
+   * (never the raw X12). Idempotent: once `eligibilityReceiptId` is set this
+   * returns the existing receipt/summary without mutating state, so callers
+   * (see `/api/episodes/[id]/eligibility`) can skip calling Stedi again.
+   */
+  async recordEligibilityCheck(episodeId: string, result: EligibilityCheckInput) {
+    return this.store.withMutationLock(() =>
+      this.recordEligibilityCheckUnlocked(episodeId, result),
+    );
+  }
+
+  private async recordEligibilityCheckUnlocked(
+    episodeId: string,
+    result: EligibilityCheckInput,
+  ) {
+    await this.store.beginMutation();
+    try {
+      const episode = await this.store.getEpisode(episodeId);
+      if (!episode) throw Object.assign(new Error("Episode not found"), { status: 404 });
+      if (episode.fixtureKey !== "encounter-a") {
+        throw Object.assign(
+          new Error("Live Stedi eligibility is limited to the approved synthetic encounter."),
+          { status: 400 },
+        );
+      }
+
+      if (episode.eligibilityReceiptId) {
+        await this.store.abortMutation();
+        return {
+          snapshot: await this.store.getSnapshot(),
+          receiptId: episode.eligibilityReceiptId,
+          summary: episode.eligibilitySummary ?? null,
+          idempotent: true,
+        };
+      }
+
+      const at = getDemoClock();
+      const receiptId = `receipt-eligibility-${episode.id}-${at}`;
+      const evidenceReference = `Coverage/eligibility-${result.checkId}`;
+      const summary: EligibilitySummary = {
+        checkId: result.checkId,
+        applicationMode: result.applicationMode,
+        activeCoverage: result.activeCoverage,
+        activeBenefitCount: result.activeBenefitCount,
+        planNames: result.planNames,
+        hasRaw271: result.hasRaw271,
+      };
+
+      const next: ClaimEpisode = {
+        ...episode,
+        coverageActive: result.activeCoverage,
+        eligibilityReceiptId: receiptId,
+        eligibilitySummary: summary,
+        heroStage: episode.heroStage ?? "eligibility_checked",
+        revision: episode.revision + 1,
+        lastVerifiedAt: at,
+        evidence: [
+          ...episode.evidence,
+          {
+            id: `ev-${receiptId}`,
+            title: "Stedi 270/271 eligibility check",
+            kind: "receipt",
+            reference: evidenceReference,
+            summary: `Synthetic Stedi 270/271 confirmed ${
+              result.activeCoverage ? "active" : "inactive"
+            } coverage (test mode, ${result.activeBenefitCount} active benefit(s)${
+              result.planNames.length ? `: ${result.planNames.join(", ")}` : ""
+            }; raw 271 ${result.hasRaw271 ? "on file" : "not captured"}).`,
+            synthetic: true,
+            observedAt: at,
+          },
+        ],
+        activities: [
+          ...episode.activities,
+          activity(
+            episode.id,
+            "eligibility.checked",
+            `Synthetic Stedi eligibility check confirmed ${
+              result.activeCoverage ? "active" : "inactive"
+            } coverage`,
+            at,
+          ),
+        ],
+      };
+
+      pushObservation(next, {
+        id: `obs-${episode.id}-eligibility-${at}`,
+        episodeId: episode.id,
+        source: "payer",
+        rawStatus: `Eligibility check ${result.activeCoverage ? "active" : "inactive"}`,
+        normalizedStatus: result.activeCoverage ? "active_coverage" : "inactive_coverage",
+        observedAt: at,
+        lastVerifiedAt: at,
+        evidenceReference,
+        synthetic: true,
+      });
+
+      const event: DomainEvent = {
+        type: "eligibility.checked",
+        id: `event-eligibility-${episode.id}-${at}`,
+        at,
+        episodeId: episode.id,
+        receiptId,
+        checkId: result.checkId,
+        activeCoverage: result.activeCoverage,
+      };
+
+      this.store.replaceEpisode(next);
+      this.store.appendEvent(event);
+      return {
+        snapshot: await this.store.commit(),
+        receiptId,
+        summary,
+        idempotent: false,
+      };
+    } catch (error) {
+      await this.store.abortMutation();
+      throw error;
+    }
   }
 
   private async markPendingVerification(

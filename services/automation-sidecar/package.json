@@ -1,0 +1,19 @@
+{
+  "name": "overturn-automation-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "generate:audio": "node scripts/generate-synthetic-audio.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "smoke": "node scripts/contract-smoke.mjs"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "playwright": "1.61.0"
+  }
+}

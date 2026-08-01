@@ -7,7 +7,7 @@ import {
   MossRetrievalError,
   MossSidecarRetrievalAdapter,
 } from "@/adapters/retrieval/moss";
-import { buildMossDocuments } from "@/adapters/retrieval/moss-documents";
+import { buildMossDocuments, buildMossDocumentsV2 } from "@/adapters/retrieval/moss-documents";
 import type { RetrievalAdapter } from "@/adapters/retrieval/types";
 import { DEFAULT_DEMO_CLOCK } from "@/domain/clock";
 import { createSeedEpisodes } from "@/domain/fixtures";
@@ -187,6 +187,43 @@ describe("Moss retrieval contract", () => {
       if (episode.memberId) expect(serialized).not.toContain(episode.memberId);
     }
     expect(documents.every((doc) => doc.metadata.synthetic === "true")).toBe(true);
+  });
+
+  it("v2 corpus adds hero policy docs without regressing the v1 shape or leaking names/member IDs", () => {
+    const episodes = createSeedEpisodes(DEFAULT_DEMO_CLOCK);
+    const v1Documents = buildMossDocuments(episodes);
+    const v2Documents = buildMossDocumentsV2(episodes);
+
+    // v2 is strictly additive over v1 for the default fixture set.
+    expect(v1Documents).toHaveLength(39);
+    expect(v2Documents.length).toBeGreaterThan(v1Documents.length);
+
+    const heroEpisode = episodes.find((e) => e.id === "episode-encounter-a")!;
+    expect(heroEpisode.portalInvestigationReceiptId).toBeFalsy();
+    expect(heroEpisode.voiceSessionReceiptId).toBeFalsy();
+
+    // Appeal policy is always available for encounter-a; portal/voice policy
+    // docs are gated on their durable receipt ids, absent in the seed fixture.
+    expect(v2Documents.some((d) => d.id === "appeal-policy-episode-encounter-a")).toBe(true);
+    expect(v2Documents.some((d) => d.id === "portal-policy-episode-encounter-a")).toBe(false);
+    expect(v2Documents.some((d) => d.id === "voice-policy-episode-encounter-a")).toBe(false);
+
+    // Once the receipts exist on the episode, the gated docs appear too.
+    const withReceipts = episodes.map((e) =>
+      e.id === "episode-encounter-a"
+        ? { ...e, portalInvestigationReceiptId: "receipt-portal-1", voiceSessionReceiptId: "receipt-voice-1" }
+        : e,
+    );
+    const v2WithReceipts = buildMossDocumentsV2(withReceipts);
+    expect(v2WithReceipts.some((d) => d.id === "portal-policy-episode-encounter-a")).toBe(true);
+    expect(v2WithReceipts.some((d) => d.id === "voice-policy-episode-encounter-a")).toBe(true);
+
+    const serialized = JSON.stringify(v2WithReceipts);
+    for (const episode of episodes) {
+      expect(serialized).not.toContain(episode.patientName);
+      if (episode.memberId) expect(serialized).not.toContain(episode.memberId);
+    }
+    expect(v2Documents.every((doc) => doc.metadata.synthetic === "true")).toBe(true);
   });
 });
 
