@@ -64,6 +64,16 @@ test.describe("Harborview PMS demo journeys", () => {
     await page.getByTestId("allow-once").click();
     await expect(page.getByTestId("approval-message")).toContainText("Submitted");
     await expect(page.getByTestId("approval-message")).toContainText("not yet found");
+    await page.getByTestId("agent-chat-input").fill("What's the status?");
+    await page.getByTestId("agent-chat-send").click();
+    await expect(page.getByTestId("agent-chat-thread")).toContainText(
+      "receipt-submit-episode-encounter-a",
+      { timeout: 10_000 },
+    );
+    await expect(page.getByTestId("agent-chat-thread")).toContainText("monitoring");
+    await expect(page.getByTestId("agent-chat-thread")).not.toContainText(
+      "ready for claim submission",
+    );
     await page.goto("/dashboard");
     await expect(page.getByTestId("kpi-ready")).toContainText("1");
   });
@@ -91,6 +101,15 @@ test.describe("Harborview PMS demo journeys", () => {
     await expect(page.getByText("Verified paid")).toHaveCount(0);
     await expect(page.getByTestId("activity-stream")).toContainText(/follow|status|refresh/i);
 
+    await page.getByRole("button", { name: "What's the status?" }).click();
+    await expect(page.getByTestId("agent-chat-thread")).toContainText(
+      /read-only payer refresh completed|scheduled for/i,
+      { timeout: 10_000 },
+    );
+    await expect(page.getByTestId("agent-chat-thread")).not.toContainText(
+      /was due 2026-07-22/i,
+    );
+
     // Chat can also trigger the same read-only refresh without a proposal.
     await page.getByRole("button", { name: "Refresh the payer status" }).click();
     await expect(page.getByTestId("agent-chat-thread")).toContainText(/refresh|status/i, {
@@ -116,6 +135,12 @@ test.describe("Harborview PMS demo journeys", () => {
     await expect(page.getByTestId("activity-stream")).toContainText(/provenance/i);
     await expect(page.getByTestId("evidence-drawer")).toContainText(
       "Payer reprocessing message",
+    );
+    await page.getByTestId("agent-chat-input").fill("What's the status?");
+    await page.getByTestId("agent-chat-send").click();
+    await expect(page.getByTestId("agent-chat-thread")).toContainText(
+      /Reprocessing was requested successfully.*remains denied/s,
+      { timeout: 10_000 },
     );
     await page.goto("/dashboard");
     await expect(page.getByTestId("kpi-verified-paid")).toContainText("1");
@@ -149,6 +174,15 @@ test.describe("Harborview PMS demo journeys", () => {
     await page.getByTestId("allow-once").click();
     await expect(page.getByTestId("approval-message")).toContainText("Documentation sent");
     await expect(page.getByText("Verified paid")).toHaveCount(0);
+    await page.getByTestId("agent-chat-input").fill("What's the status?");
+    await page.getByTestId("agent-chat-send").click();
+    await expect(page.getByTestId("agent-chat-thread")).toContainText(
+      /was sent successfully.*waiting_on_payer/s,
+      { timeout: 10_000 },
+    );
+    await expect(page.getByTestId("agent-chat-thread")).not.toContainText(
+      "has not been sent",
+    );
   });
 
   test("claim F verified paid explanation and proposal-only chat", async ({ page }) => {

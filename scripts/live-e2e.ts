@@ -7,7 +7,7 @@
  * Usage:
  *   LIVE_BASE_URL=https://example.example npm run test:e2e:live
  */
-import { chromium, type Page } from "@playwright/test";
+import { chromium, expect, type Page } from "@playwright/test";
 
 const configuredBaseUrl = process.env.LIVE_BASE_URL;
 if (!configuredBaseUrl) {
@@ -61,12 +61,29 @@ async function main() {
   await page.getByTestId("allow-once").waitFor({ timeout: 30_000 });
   await page.getByTestId("allow-once").click();
   await waitForApprovalOutcome(page, "Encounter A submission");
+  await page.getByTestId("agent-chat-input").fill("What's the status?");
+  await page.getByTestId("agent-chat-send").click();
+  await expect(page.getByTestId("agent-chat-thread")).toContainText(
+    "receipt-submit-episode-encounter-a",
+    { timeout: 30_000 },
+  );
+  await expect(page.getByTestId("agent-chat-thread")).not.toContainText(
+    "ready for claim submission",
+  );
 
   console.log("[live] Claim B read-only refresh");
   // Claim B read-only refresh (no approval)
   await page.goto(`${LIVE_ROOT}/claims/episode-claim-b`);
   await page.getByTestId("refresh-payer-status").click();
   await page.getByTestId("refresh-status-message").waitFor({ timeout: 30_000 });
+  await page.getByRole("button", { name: "What's the status?" }).click();
+  await expect(page.getByTestId("agent-chat-thread")).toContainText(
+    /read-only payer refresh completed.*scheduled for/s,
+    { timeout: 30_000 },
+  );
+  await expect(page.getByTestId("agent-chat-thread")).not.toContainText(
+    /was due 2026-07-22/i,
+  );
 
   console.log("[live] Claim C deny, re-propose, allow");
   // Claim C deny / re-propose / allow
@@ -78,6 +95,12 @@ async function main() {
   await page.getByTestId("allow-once").waitFor({ timeout: 30_000 });
   await page.getByTestId("allow-once").click();
   await waitForApprovalOutcome(page, "Claim C reprocessing");
+  await page.getByTestId("agent-chat-input").fill("What's the status?");
+  await page.getByTestId("agent-chat-send").click();
+  await expect(page.getByTestId("agent-chat-thread")).toContainText(
+    /Reprocessing was requested successfully.*remains denied/s,
+    { timeout: 30_000 },
+  );
 
   console.log("[live] Claim D correction and resubmit");
   // Claim D correction with visible member id diff
@@ -91,6 +114,15 @@ async function main() {
   await page.goto(`${LIVE_ROOT}/claims/episode-claim-e`);
   await page.getByTestId("allow-once").click();
   await waitForApprovalOutcome(page, "Claim E documentation");
+  await page.getByTestId("agent-chat-input").fill("What's the status?");
+  await page.getByTestId("agent-chat-send").click();
+  await expect(page.getByTestId("agent-chat-thread")).toContainText(
+    /was sent successfully.*waiting_on_payer/s,
+    { timeout: 30_000 },
+  );
+  await expect(page.getByTestId("agent-chat-thread")).not.toContainText(
+    "has not been sent",
+  );
 
   console.log("[live] Claim F verified paid and chat safety");
   // Claim F: no mutation via chat

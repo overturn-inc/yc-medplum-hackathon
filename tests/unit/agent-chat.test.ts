@@ -51,3 +51,66 @@ describe("answerChatMessage claim-b read-only refresh (P1)", () => {
     expect(answer.executeReadOnlyRefresh).toBeUndefined();
   });
 });
+
+describe("answerChatMessage reflects completed actions", () => {
+  const episodes = createSeedEpisodes(DEFAULT_DEMO_CLOCK);
+
+  it("reports submission receipt and monitoring instead of stale readiness", () => {
+    const encounter = structuredClone(
+      episodes.find((e) => e.fixtureKey === "encounter-a")!,
+    );
+    encounter.submissionReceiptId = "receipt-submit-episode-encounter-a";
+    encounter.transportState = "clearinghouse_received";
+    encounter.adjudicationState = "not_found";
+    encounter.resolutionState = "monitoring";
+    const answer = answerChatMessage(encounter, "What is the current status?");
+    expect(answer.content).toContain(encounter.submissionReceiptId);
+    expect(answer.content).toContain("monitoring");
+    expect(answer.content).not.toContain("ready for claim submission");
+    expect(answer.suggestedActionType).toBeNull();
+  });
+
+  it("describes a completed Claim B refresh and future scheduled follow-up", () => {
+    const claim = structuredClone(
+      episodes.find((e) => e.fixtureKey === "claim-b")!,
+    );
+    claim.statusRefreshReceiptId = "receipt-status-refresh-claim-b";
+    claim.lastPayerCheckAt = "2026-07-15T15:00:00.000Z";
+    claim.lastVerifiedAt = "2026-07-15T15:00:00.000Z";
+    claim.nextFollowUpAt = "2026-07-22T15:00:00.000Z";
+    const answer = answerChatMessage(claim, "What is the current status?");
+    expect(answer.content).toContain(claim.statusRefreshReceiptId);
+    expect(answer.content).toContain("scheduled for 2026-07-22");
+    expect(answer.content).not.toContain("was due 2026-07-22");
+    expect(answer.content).toContain("did not mark the claim paid");
+  });
+
+  it("reports completed reprocessing while denial remains", () => {
+    const claim = structuredClone(
+      episodes.find((e) => e.fixtureKey === "claim-c")!,
+    );
+    claim.reprocessingReceiptId = "receipt-reprocess-episode-claim-c";
+    claim.resolutionState = "reprocessing";
+    claim.adjudicationState = "denied";
+    claim.nextFollowUpAt = "2026-07-22T15:00:00.000Z";
+    const answer = answerChatMessage(claim, "What should happen next?");
+    expect(answer.content).toContain(claim.reprocessingReceiptId);
+    expect(answer.content).toContain("remains denied");
+    expect(answer.content).toContain("2026-07-22");
+    expect(answer.suggestedActionType).toBeNull();
+  });
+
+  it("reports documentation as sent and awaiting payer", () => {
+    const claim = structuredClone(
+      episodes.find((e) => e.fixtureKey === "claim-e")!,
+    );
+    claim.documentationReceiptId = "receipt-send-documentation-episode-claim-e";
+    claim.resolutionState = "waiting_on_payer";
+    claim.nextFollowUpAt = "2026-07-22T15:00:00.000Z";
+    const answer = answerChatMessage(claim, "What is the current status?");
+    expect(answer.content).toContain(claim.documentationReceiptId);
+    expect(answer.content).toContain("waiting_on_payer");
+    expect(answer.content).not.toContain("has not been sent");
+    expect(answer.suggestedActionType).toBeNull();
+  });
+});

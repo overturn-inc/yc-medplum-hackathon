@@ -183,10 +183,29 @@ const respondClaimF: Responder = (episode, intent) => {
   };
 };
 
-/** Claim C: discrepancy explanation citing the conflicting sources. */
-const respondClaimC: Responder = (episode) => {
+function receiptEvidence(
+  episode: ClaimEpisode,
+  receiptId: string | null | undefined,
+): EvidenceItem | undefined {
+  if (!receiptId) return undefined;
+  return episode.evidence.find(
+    (item) =>
+      item.kind === "receipt" &&
+      (item.id.includes(receiptId) || item.reference.includes(receiptId)),
+  );
+}
+
+/** Claim C: discrepancy explanation citing the conflicting sources and latest resolution. */
+const respondClaimC: Responder = (episode, intent) => {
   const conflict = episode.discrepancies.find((d) => d.ruleId === "status_conflict");
   const authEvidence = episode.evidence.find((e) => e.kind === "authorization");
+  const reprocessingArtifact = episode.evidence.find(
+    (e) => e.kind === "artifact" && /reprocess/i.test(`${e.title} ${e.summary}`),
+  );
+  const reprocessingReceipt = receiptEvidence(
+    episode,
+    episode.reprocessingReceiptId,
+  );
   const citations = [
     ...(conflict
       ? conflict.comparedSources.map((s) => ({
@@ -197,7 +216,20 @@ const respondClaimC: Responder = (episode) => {
         }))
       : []),
     ...citeEvidence([authEvidence]),
+    ...citeEvidence([reprocessingArtifact, reprocessingReceipt]),
   ];
+  if (
+    episode.reprocessingReceiptId &&
+    (intent === "status" || intent === "next_action")
+  ) {
+    return {
+      content:
+        `Reprocessing was requested successfully under receipt ${episode.reprocessingReceiptId}. ` +
+        `The payer adjudication remains denied until a new payer response arrives; the current resolution is ` +
+        `${episode.resolutionState}. Next follow-up is scheduled for ${episode.nextFollowUpAt ?? "not yet scheduled"}.`,
+      citations,
+    };
+  }
   const content = conflict
     ? `PMS reports "${conflict.comparedSources[0]?.normalizedStatus}" while the payer reported ` +
       `"${conflict.comparedSources[1]?.normalizedStatus}" on ${conflict.comparedSources[1]?.observedAt}. ` +
@@ -231,31 +263,69 @@ const respondClaimD: Responder = (episode) => {
   return { content, citations: citeEvidence([rejection, correction]) };
 };
 
-/** Claim B: overdue status explanation citing the last payer/clearinghouse checks. */
+/** Claim B: status explanation citing the latest payer/clearinghouse checks. */
 const respondClaimB: Responder = (episode) => {
   const payer = latestBySource(episode, "payer");
   const clearinghouse = latestBySource(episode, "clearinghouse");
-  const content = episode.nextFollowUpAt
-    ? `Claim was accepted for processing but remittance is overdue: follow-up was due ` +
-      `${episode.nextFollowUpAt} and the last payer check was ${episode.lastPayerCheckAt ?? "unknown"}, ` +
-      `with no newer payer or remittance observation since.`
-    : `Claim is accepted for processing; last payer check was ${episode.lastPayerCheckAt ?? "unknown"}.`;
-  return { content, citations: citeObservations([payer, clearinghouse]) };
+  const refreshReceipt = receiptEvidence(episode, episode.statusRefreshReceiptId);
+  const followUpTiming = episode.nextFollowUpAt
+    ? episode.nextFollowUpAt > episode.lastVerifiedAt
+      ? `Next follow-up is scheduled for ${episode.nextFollowUpAt}.`
+      : `Follow-up was due ${episode.nextFollowUpAt}.`
+    : "No next follow-up is scheduled yet.";
+  const refreshStatus = episode.statusRefreshReceiptId
+    ? `A read-only payer refresh completed under receipt ${episode.statusRefreshReceiptId}; it re-confirmed ` +
+      `${episode.adjudicationState} and did not mark the claim paid. `
+    : "";
+  const content =
+    `${refreshStatus}Claim is accepted for processing and no remittance has been received. ` +
+    `Last payer check was ${episode.lastPayerCheckAt ?? "unknown"}. ${followUpTiming}`;
+  return {
+    content,
+    citations: [
+      ...citeObservations([payer, clearinghouse]),
+      ...citeEvidence([refreshReceipt]),
+    ],
+  };
 };
 
 /** Claim E: identifies the signed supporting note already on file. */
 const respondClaimE: Responder = (episode) => {
   const note = episode.evidence.find((e) => e.kind === "note");
   const pend = episode.evidence.find((e) => e.kind === "portal_snapshot");
-  const content = note
+  const receipt = receiptEvidence(episode, episode.documentationReceiptId);
+  const content = episode.documentationReceiptId
+    ? `The signed supporting note ${note?.reference ?? "on file"} was sent successfully under receipt ` +
+      `${episode.documentationReceiptId}. Payer adjudication remains ${episode.adjudicationState}; ` +
+      `the claim is ${episode.resolutionState}, with follow-up scheduled for ` +
+      `${episode.nextFollowUpAt ?? "a pending date"}.`
+    : note
     ? `The payer requested supporting documentation${pend ? ` (${pend.summary})` : ""}. ` +
       `A signed supporting note is already on file: ${note.reference}. It has not been sent to the payer yet.`
     : "No signed supporting note is on file yet for this documentation request.";
-  return { content, citations: citeEvidence([note, pend]) };
+  return { content, citations: citeEvidence([note, pend, receipt]) };
 };
 
 /** Encounter A / Claim A: submission readiness against the preflight checklist. */
 const respondSubmissionReadiness: Responder = (episode) => {
+  if (
+    episode.submissionReceiptId ||
+    episode.transportState === "clearinghouse_received"
+  ) {
+    const receipt = receiptEvidence(episode, episode.submissionReceiptId);
+    const clearinghouse = latestBySource(episode, "clearinghouse");
+    return {
+      content:
+        `This claim has already been submitted under receipt ` +
+        `${episode.submissionReceiptId ?? "recorded on the episode"}. The clearinghouse received it, ` +
+        `payer adjudication is ${episode.adjudicationState}, and the current resolution is ` +
+        `${episode.resolutionState}. The next step is to monitor for payer acknowledgment; do not submit it again.`,
+      citations: [
+        ...citeEvidence([receipt]),
+        ...citeObservations([clearinghouse]),
+      ],
+    };
+  }
   const checks = runPreflight(episode);
   const failed = checks.filter((c) => !c.passed);
   const content =
@@ -292,7 +362,15 @@ export function answerChatWithIntent(
   episode: ClaimEpisode,
   intent: AgentIntent,
 ): ChatAnswer {
-  const suggestedActionType = defaultActionTypeForFixture(episode.fixtureKey);
+  const actionAlreadyCompleted =
+    ((episode.fixtureKey === "encounter-a" || episode.fixtureKey === "claim-a") &&
+      !!episode.submissionReceiptId) ||
+    (episode.fixtureKey === "claim-c" && !!episode.reprocessingReceiptId) ||
+    (episode.fixtureKey === "claim-d" && !!episode.correctedFromClaimId) ||
+    (episode.fixtureKey === "claim-e" && !!episode.documentationReceiptId);
+  const suggestedActionType = actionAlreadyCompleted
+    ? null
+    : defaultActionTypeForFixture(episode.fixtureKey);
 
   if (intent === "request_action") {
     if (episode.fixtureKey === "claim-b") {
@@ -306,7 +384,10 @@ export function answerChatWithIntent(
         executeReadOnlyRefresh: true,
       };
     }
-    const content = suggestedActionType
+    const content = actionAlreadyCompleted
+      ? `The scripted action for this episode has already completed. Current resolution is ` +
+        `${episode.resolutionState}; ask for status to see the receipt and next follow-up. I will not create a duplicate proposal.`
+      : suggestedActionType
       ? `I can create a proposal to ${ACTION_LABELS[suggestedActionType]}. I will never execute a ` +
         `healthcare write directly from chat -- you still need to review and Allow once on the ` +
         `resulting proposal before anything happens.`
