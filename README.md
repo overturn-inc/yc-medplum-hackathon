@@ -3,6 +3,8 @@
 Agent-native PMS demo: conversational claim workbench with approval-gated
 synthetic actions across seven encounter/claim episodes.
 
+**Public demo:** https://overturn-agentic-claims.argentum1450.chatgpt.site
+
 ## Requirements
 
 - Node.js **20.19+**
@@ -41,6 +43,8 @@ Never use `NEXT_PUBLIC_` for secrets.
 6. **Claim E** — send existing signed supporting note after approval.
 7. **Claim F** — verified paid only with independent remittance + PMS posting.
 8. **Refresh** persists session state; **Reset demo** restores only the current session.
+9. Ask for status again after each action; the agent cites the current receipt,
+   resolution, and next follow-up instead of repeating the pre-action state.
 
 ## Verification
 

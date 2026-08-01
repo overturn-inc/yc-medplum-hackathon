@@ -21,7 +21,7 @@ Deployable Worker build (vinext + Cloudflare Vite plugin):
 
 ```bash
 npm run build:sites
-bash /Users/jeonhwichan/.codex/plugins/cache/openai-bundled/sites/0.1.33/skills/sites-hosting/scripts/package-site.sh . /private/tmp/overturn-sites-repair.tar.gz
+bash /Users/jeonhwichan/.codex/plugins/cache/openai-bundled/sites/0.1.33/skills/sites-hosting/scripts/package-site.sh . /private/tmp/overturn-sites-release.tar.gz
 ```
 
 Required artifacts:
@@ -42,6 +42,8 @@ Runtime repository selection:
 
 Public default success path remains deterministic synthetic mode (no Medplum
 credentials, no live payer writes).
+
+Current public release: https://overturn-agentic-claims.argentum1450.chatgpt.site
 
 ## Connected adapters (optional)
 
