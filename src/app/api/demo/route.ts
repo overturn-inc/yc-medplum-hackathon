@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { getDemoViewModel } from "@/server/demo";
+import { storeFromRequest } from "@/server/request-store";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const model = await getDemoViewModel();
+export async function GET(request: Request) {
+  const { repo, setCookie } = await storeFromRequest(request);
+  const model = await getDemoViewModel(repo);
   if (!model.ok) {
-    return NextResponse.json(
+    const response = NextResponse.json(
       {
         error: model.error,
         healthcareMode: model.config.healthcareMode,
@@ -14,8 +16,10 @@ export async function GET() {
       },
       { status: 503 },
     );
+    if (setCookie) response.headers.append("Set-Cookie", setCookie);
+    return response;
   }
-  return NextResponse.json({
+  const response = NextResponse.json({
     demoClock: model.demoClock,
     sessionRevision: model.sessionRevision,
     config: model.config,
@@ -23,4 +27,6 @@ export async function GET() {
     queues: model.queues,
     episodes: model.episodes,
   });
+  if (setCookie) response.headers.append("Set-Cookie", setCookie);
+  return response;
 }

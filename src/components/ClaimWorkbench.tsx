@@ -1,4 +1,4 @@
-import { ApprovalControls } from "@/components/ApprovalControls";
+import { AgentStation } from "@/components/AgentStation";
 import type { EpisodeView } from "@/domain/projector";
 import type { PreflightCheck } from "@/domain/preflight";
 import type { DomainEvent } from "@/domain/types";
@@ -16,10 +16,12 @@ export function ClaimWorkbench({
   episode,
   preflight,
   events = [],
+  agentMode = "synthetic",
 }: {
   episode: EpisodeView;
   preflight?: PreflightCheck[] | null;
   events?: DomainEvent[];
+  agentMode?: string;
 }) {
   const sourceBlocks = [
     {
@@ -196,76 +198,12 @@ export function ClaimWorkbench({
         )}
       </div>
 
-      <aside className="panel agent-station" aria-label="Agent station">
-        <h2>Agent station</h2>
-        {episode.proposal ? (
-          <>
-            <p>
-              <strong>What I found</strong>
-              <br />
-              {episode.proposal.whatIFound}
-            </p>
-            <p>
-              <strong>Evidence used</strong>
-            </p>
-            <ul className="funnel-list" data-testid="proposal-evidence">
-              {episode.proposal.evidenceUsed.map((ref) => (
-                <li key={ref}>
-                  <span className="mono">{ref}</span>
-                </li>
-              ))}
-            </ul>
-            <p>
-              <strong>Proposed action</strong>
-              <br />
-              {episode.proposal.proposedAction}
-            </p>
-            <p>
-              <strong>Artifact preview</strong>
-            </p>
-            <div className="artifact mono" data-testid="artifact-preview">
-              {episode.proposal.artifactPreview}
-            </div>
-          </>
-        ) : (
-          <p className="muted">No open proposal. Resolution: {episode.resolutionState}</p>
-        )}
-        <ApprovalControls
-          episodeId={episode.id}
-          actionType={
-            (episode.proposal?.actionType as
-              | "submit_claim"
-              | "request_reprocessing"
-              | undefined) ??
-            (episode.fixtureKey === "encounter-a"
-              ? "submit_claim"
-              : "request_reprocessing")
-          }
-          proposal={episode.proposal}
-          preflight={preflight ?? null}
-        />
-
-        <h3>Activity stream</h3>
-        <ul className="activity-stream" data-testid="activity-stream">
-          {episode.activities.map((item) => (
-            <li key={item.id}>
-              <div>{item.summary}</div>
-              <div className="muted">
-                {item.at} · {item.kind}
-              </div>
-            </li>
-          ))}
-          {events
-            .filter((event) => event.type !== "demo.session.reset")
-            .slice(-8)
-            .map((event) => (
-              <li key={event.id}>
-                <div>{event.type}</div>
-                <div className="muted">{event.at}</div>
-              </li>
-            ))}
-        </ul>
-      </aside>
+      <AgentStation
+        episode={episode}
+        preflight={preflight}
+        events={events}
+        agentMode={agentMode}
+      />
     </div>
   );
 }

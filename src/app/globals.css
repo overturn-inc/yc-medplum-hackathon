@@ -25,6 +25,8 @@ html,
 body {
   margin: 0;
   min-height: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
   color: var(--ink);
   background:
     radial-gradient(circle at 12% 10%, #dff0e6 0%, transparent 42%),
@@ -331,9 +333,11 @@ tr:hover td {
 
 .workbench {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.9fr);
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.9fr);
   gap: 1rem;
   align-items: start;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .stack {
@@ -374,11 +378,15 @@ tr:hover td {
   font-family: var(--font-mono);
   font-size: 0.82rem;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .agent-station {
   position: sticky;
   top: 5rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .agent-station .artifact {
@@ -388,6 +396,89 @@ tr:hover td {
   border-radius: 0.75rem;
   padding: 0.75rem;
   background: #f7faf8;
+  max-width: 100%;
+}
+
+.agent-station-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.agent-station-header h2 {
+  margin: 0;
+}
+
+.chat-thread {
+  display: grid;
+  gap: 0.6rem;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 0.15rem;
+  margin-bottom: 0.6rem;
+}
+
+.chat-message {
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 0.6rem 0.7rem;
+  background: #fff;
+}
+
+.chat-message p {
+  margin: 0.35rem 0 0;
+}
+
+.chat-message-user {
+  background: rgba(15, 92, 76, 0.05);
+}
+
+.chat-message-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+}
+
+.chat-message-meta strong {
+  font-size: 0.82rem;
+}
+
+.citation-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.chip-row .filter-chip {
+  font-size: 0.82rem;
+  padding: 0.3rem 0.65rem;
+}
+
+.chat-input-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.chat-input-row input {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  padding: 0.55rem 0.7rem;
+  background: #fff;
 }
 
 .actions {

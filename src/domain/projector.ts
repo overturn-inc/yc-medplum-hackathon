@@ -79,7 +79,8 @@ export function isNeedsAttention(view: EpisodeView): boolean {
     view.primaryBucket === "action_required" ||
     view.primaryBucket === "denied_under_resolution" ||
     view.primaryBucket === "rejected_before_adjudication" ||
-    view.overlays.includes("source_discrepancy")
+    view.overlays.includes("source_discrepancy") ||
+    view.overlays.includes("follow_up_due")
   );
 }
 

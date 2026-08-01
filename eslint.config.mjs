@@ -14,6 +14,8 @@ const eslintConfig = [
     ignores: [
       "medplum-link/**",
       ".next/**",
+      "dist/**",
+      ".wrangler/**",
       "node_modules/**",
       "coverage/**",
       "playwright-report/**",

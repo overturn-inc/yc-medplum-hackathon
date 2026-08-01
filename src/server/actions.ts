@@ -3,9 +3,11 @@ import {
   assertFreshApproval,
   buildApprovalFingerprint,
   createApprovalReceipt,
+  digestPayload,
   proposalApprovalFields,
   type ClientApprovalScope,
 } from "@/domain/approval";
+import { assertActionAllowed } from "@/domain/action-policy";
 import { getDemoClock, addDays } from "@/domain/clock";
 import {
   buildReprocessingAuditEvent,
@@ -13,17 +15,26 @@ import {
   buildSubmissionAuditEvent,
 } from "@/domain/fhir-audit";
 import { runPreflight, preflightReady } from "@/domain/preflight";
-import { buildReprocessingProposal, buildSubmitProposal } from "@/domain/proposals";
+import { buildClaimResource } from "@/domain/fixtures";
+import {
+  buildProposalForAction,
+  defaultActionTypeForFixture,
+  deriveCorrectedMemberId,
+  type ProposableActionType,
+} from "@/domain/proposals";
 import type {
+  ActionType,
   ActivityEvent,
   ClaimEpisode,
   DomainEvent,
   ExecutionReceipt,
   SourceObservation,
 } from "@/domain/types";
-import type { LocalEventStore } from "./store";
+import type { SessionRepository } from "@/server/repository";
 import type { AgentAdapter } from "@/adapters/agent/types";
 import { createSyntheticAgentAdapter } from "@/adapters/agent/synthetic";
+
+export type { ProposableActionType } from "@/domain/proposals";
 
 function activity(
   episodeId: string,
@@ -68,14 +79,33 @@ function scopesMatch(
 
 export class ActionService {
   constructor(
-    private readonly store: LocalEventStore,
+    private readonly store: SessionRepository,
     private readonly agent: AgentAdapter = createSyntheticAgentAdapter(),
   ) {}
 
-  createProposal(episodeId: string, action: "submit_claim" | "request_reprocessing") {
-    this.store.beginMutation();
+  /**
+   * Creates (or re-creates, e.g. after a deny) a deterministic local
+   * proposal. `action` is optional: when omitted, the fixture's scripted
+   * default action is used (submit_claim for encounter-a, request_reprocessing
+   * for claim-c, correct_and_resubmit for claim-d, send_documentation for
+   * claim-e). Fixtures without a scripted proposal action (claim-a, claim-b,
+   * claim-f) require an explicit `action`; claim-b's `assertActionAllowed`
+   * additionally rejects every proposal-shaped action outright, since its
+   * only scripted action is the read-only `refreshPayerStatus` (see below).
+   */
+  async createProposal(episodeId: string, action?: ProposableActionType) {
+    return this.store.withMutationLock(() =>
+      this.createProposalUnlocked(episodeId, action),
+    );
+  }
+
+  private async createProposalUnlocked(
+    episodeId: string,
+    action?: ProposableActionType,
+  ) {
+    await this.store.beginMutation();
     try {
-      const snapshot = this.store.getSnapshot();
+      const snapshot = await this.store.getSnapshot();
       if (snapshot.agentMode === "bff") {
         throw Object.assign(
           new Error(
@@ -84,22 +114,31 @@ export class ActionService {
           { status: 503, code: "BFF_PROPOSAL_BLOCKED" },
         );
       }
-      const episode = this.store.getEpisode(episodeId);
+      const episode = await this.store.getEpisode(episodeId);
       if (!episode) throw Object.assign(new Error("Episode not found"), { status: 404 });
+
+      const resolvedAction = action ?? defaultActionTypeForFixture(episode.fixtureKey);
+      if (!resolvedAction) {
+        throw Object.assign(
+          new Error(
+            `No default proposal action for ${episode.fixtureKey}; specify an actionType`,
+          ),
+          { status: 400 },
+        );
+      }
+      assertActionAllowed(episode, resolvedAction);
 
       const bumped = {
         ...episode,
         revision: episode.revision + 1,
       };
-      const proposal =
-        action === "submit_claim"
-          ? buildSubmitProposal(bumped)
-          : buildReprocessingProposal(bumped);
+      const proposal = buildProposalForAction(resolvedAction, bumped);
 
       const next = {
         ...bumped,
         proposal,
         resolutionState: "approval_required" as const,
+        agentAction: proposal.title,
       };
       next.activities = [
         ...episode.activities,
@@ -107,21 +146,21 @@ export class ActionService {
       ];
       const event: DomainEvent = {
         type: "proposal.created",
-        id: `event-proposal-${proposal.id}`,
+        id: `event-proposal-${proposal.id}-${Math.random().toString(36).slice(2, 7)}`,
         at: getDemoClock(),
         episodeId,
         proposalId: proposal.id,
       };
       this.store.replaceEpisode(next);
       this.store.appendEvent(event);
-      const committed = this.store.commit();
+      const committed = await this.store.commit();
       return {
         snapshot: committed,
         proposal,
         approvalScope: proposalApprovalFields(proposal),
       };
     } catch (error) {
-      this.store.abortMutation();
+      await this.store.abortMutation();
       throw error;
     }
   }
@@ -129,12 +168,21 @@ export class ActionService {
   async decide(input: {
     episodeId: string;
     decision: "allow_once" | "deny";
-    actionType: "submit_claim" | "request_reprocessing";
+    actionType: ProposableActionType;
     scope?: ClientApprovalScope;
   }) {
-    this.store.beginMutation();
+    return this.store.withMutationLock(() => this.decideUnlocked(input));
+  }
+
+  private async decideUnlocked(input: {
+    episodeId: string;
+    decision: "allow_once" | "deny";
+    actionType: ProposableActionType;
+    scope?: ClientApprovalScope;
+  }) {
+    await this.store.beginMutation();
     try {
-      const episode = this.store.getEpisode(input.episodeId);
+      const episode = await this.store.getEpisode(input.episodeId);
       if (!episode) throw Object.assign(new Error("Episode not found"), { status: 404 });
 
       if (!input.scope) {
@@ -146,7 +194,7 @@ export class ActionService {
         );
       }
 
-      const prior = this.store.findApprovalConsumed({
+      const prior = await this.store.findApprovalConsumed({
         episodeId: input.episodeId,
         actionType: input.actionType,
       });
@@ -160,8 +208,8 @@ export class ActionService {
             { status: 409 },
           );
         }
-        const snapshot = this.store.getSnapshot();
-        this.store.abortMutation();
+        const snapshot = await this.store.getSnapshot();
+        await this.store.abortMutation();
         return {
           snapshot,
           receiptId: prior.receiptId,
@@ -176,6 +224,11 @@ export class ActionService {
           },
         };
       }
+
+      // Server-owned policy: never trust the caller-supplied actionType alone.
+      // Idempotent retries of an already-committed approval short-circuit above
+      // before reaching this check, so this only guards genuinely new decisions.
+      assertActionAllowed(episode, input.actionType);
 
       if (!episode.proposal || episode.proposal.actionType !== input.actionType) {
         throw Object.assign(new Error("No matching proposal"), { status: 409 });
@@ -207,13 +260,13 @@ export class ActionService {
       });
 
       if (input.decision === "deny") {
-        return this.deny(episode, receipt.id, input.scope);
+        return await this.deny(episode, receipt.id, input.scope);
       }
 
-      const existing = this.store.getExecutionReceipt(receipt.idempotencyKey);
+      const existing = await this.store.getExecutionReceipt(receipt.idempotencyKey);
       if (existing && prior && scopesMatch(prior, input.scope)) {
-        const snapshot = this.store.getSnapshot();
-        this.store.abortMutation();
+        const snapshot = await this.store.getSnapshot();
+        await this.store.abortMutation();
         return {
           snapshot,
           receiptId: existing,
@@ -222,27 +275,84 @@ export class ActionService {
         };
       }
 
-      if (input.actionType === "submit_claim") {
-        return await this.executeSubmit(
-          episode,
-          receipt.id,
-          receipt.idempotencyKey,
-          input.scope,
-        );
+      // Reserve the exact idempotency key BEFORE any connector execution.
+      // `withMutationLock` already serializes callers on this repository
+      // instance, but the reservation is a durable, repository-backed guard
+      // (unique on session + key) that also protects a network-backed
+      // (D1/SQL) repository shared across separate server processes, where
+      // the in-process lock alone would not be sufficient.
+      if (this.store.reserveAction) {
+        const reservation = await this.store.reserveAction({
+          clientRequestId: receipt.idempotencyKey,
+          episodeId: episode.id,
+          actionType: input.actionType,
+        });
+        if (!reservation.reserved) {
+          const snapshot = await this.store.getSnapshot();
+          await this.store.abortMutation();
+          if (reservation.existingReceiptId) {
+            return {
+              snapshot,
+              receiptId: reservation.existingReceiptId,
+              idempotent: true,
+              approvalScope: proposalApprovalFields(episode.proposal),
+            };
+          }
+          return {
+            snapshot,
+            receiptId: null,
+            pendingVerification: true,
+            message:
+              "This action is already being executed for the exact same idempotency key; no second execution was started.",
+            idempotent: false,
+          };
+        }
       }
-      return await this.executeReprocessing(
-        episode,
-        receipt.id,
-        receipt.idempotencyKey,
-        input.scope,
-      );
+
+      switch (input.actionType) {
+        case "submit_claim":
+          return await this.executeSubmit(
+            episode,
+            receipt.id,
+            receipt.idempotencyKey,
+            input.scope,
+          );
+        case "request_reprocessing":
+          return await this.executeReprocessing(
+            episode,
+            receipt.id,
+            receipt.idempotencyKey,
+            input.scope,
+          );
+        case "correct_and_resubmit":
+          return await this.executeCorrectAndResubmit(
+            episode,
+            receipt.id,
+            receipt.idempotencyKey,
+            input.scope,
+          );
+        case "send_documentation":
+          return await this.executeSendDocumentation(
+            episode,
+            receipt.id,
+            receipt.idempotencyKey,
+            input.scope,
+          );
+        default: {
+          const exhaustive: never = input.actionType;
+          throw Object.assign(
+            new Error(`Unsupported action type: ${exhaustive as string}`),
+            { status: 400 },
+          );
+        }
+      }
     } catch (error) {
-      this.store.abortMutation();
+      await this.store.abortMutation();
       throw error;
     }
   }
 
-  private deny(
+  private async deny(
     episode: ClaimEpisode,
     approvalId: string,
     scope: ClientApprovalScope,
@@ -270,7 +380,7 @@ export class ActionService {
     this.store.replaceEpisode(next);
     this.store.appendEvent(event);
     return {
-      snapshot: this.store.commit(),
+      snapshot: await this.store.commit(),
       receiptId: null,
       denied: true,
       approvalScope: scope,
@@ -334,10 +444,10 @@ export class ActionService {
       ...episode,
       claimId,
       chargeState: "claim_created",
-      transportState: "sent",
-      adjudicationState: "accepted_for_processing",
+      transportState: "clearinghouse_received",
+      adjudicationState: "not_found",
       resolutionState: "monitoring",
-      issue: "Submitted; awaiting payer",
+      issue: "Received by clearinghouse; awaiting payer acknowledgment",
       agentAction: null,
       proposal: null,
       submissionReceiptId: receiptId,
@@ -372,8 +482,8 @@ export class ActionService {
       id: `obs-${episode.id}-transport-submit`,
       episodeId: episode.id,
       source: "clearinghouse",
-      rawStatus: "Accepted for processing",
-      normalizedStatus: "accepted_for_processing",
+      rawStatus: "Received by clearinghouse",
+      normalizedStatus: "clearinghouse_received",
       observedAt: at,
       lastVerifiedAt: at,
       evidenceReference: execution.evidenceReference,
@@ -384,7 +494,7 @@ export class ActionService {
       episodeId: episode.id,
       source: "pms",
       rawStatus: "Submitted",
-      normalizedStatus: "accepted_for_processing",
+      normalizedStatus: "sent",
       observedAt: at,
       lastVerifiedAt: at,
       evidenceReference: `Claim/${claimId.toLowerCase()}`,
@@ -426,8 +536,13 @@ export class ActionService {
 
     this.store.replaceEpisode(next);
     for (const event of events) this.store.appendEvent(event);
-    this.store.rememberExecution(idempotencyKey, receiptId);
-    return { snapshot: this.store.commit(), receiptId, execution, idempotent: false };
+    await this.store.rememberExecution(idempotencyKey, receiptId);
+    return {
+      snapshot: await this.store.commit(),
+      receiptId,
+      execution,
+      idempotent: false,
+    };
   }
 
   private async executeReprocessing(
@@ -577,9 +692,9 @@ export class ActionService {
 
     this.store.replaceEpisode(next);
     for (const event of events) this.store.appendEvent(event);
-    this.store.rememberExecution(idempotencyKey, receiptId);
+    await this.store.rememberExecution(idempotencyKey, receiptId);
     return {
-      snapshot: this.store.commit(),
+      snapshot: await this.store.commit(),
       receiptId,
       artifactId,
       followUpAt,
@@ -589,9 +704,426 @@ export class ActionService {
     };
   }
 
-  private markPendingVerification(
+  /**
+   * Claim B: read-only payer status refresh. This is deliberately NOT a
+   * proposal/approval-gated action -- claim-b never enters
+   * approval_required and never carries a proposal (see
+   * `assertActionAllowed` and `rehydrateEpisode`). It executes immediately
+   * on request, appends a synthetic payer observation plus a fresh
+   * follow-up date, and NEVER creates an `approval.consumed` event or marks
+   * the claim paid. Idempotent per episode revision: a duplicate call
+   * before the episode has changed returns the same receipt without a
+   * second side effect.
+   */
+  async refreshPayerStatus(episodeId: string) {
+    return this.store.withMutationLock(() =>
+      this.refreshPayerStatusUnlocked(episodeId),
+    );
+  }
+
+  private async refreshPayerStatusUnlocked(episodeId: string) {
+    await this.store.beginMutation();
+    try {
+      const episode = await this.store.getEpisode(episodeId);
+      if (!episode) throw Object.assign(new Error("Episode not found"), { status: 404 });
+      if (episode.fixtureKey !== "claim-b") {
+        throw Object.assign(
+          new Error("Payer status refresh is only available for claim-b"),
+          { status: 400 },
+        );
+      }
+
+      const reservationKey = `refresh-payer-status:${episodeId}:${episode.revision}`;
+      if (this.store.reserveAction) {
+        const reservation = await this.store.reserveAction({
+          clientRequestId: reservationKey,
+          episodeId,
+          actionType: "refresh_payer_status",
+        });
+        if (!reservation.reserved) {
+          const snapshot = await this.store.getSnapshot();
+          await this.store.abortMutation();
+          return {
+            snapshot,
+            receiptId: reservation.existingReceiptId ?? episode.statusRefreshReceiptId ?? null,
+            followUpAt: episode.nextFollowUpAt,
+            idempotent: true,
+            message: reservation.existingReceiptId
+              ? "Payer status was already refreshed for this revision; returning the existing result."
+              : "A payer status refresh is already in progress for this revision.",
+          };
+        }
+      }
+
+      const idempotencyKey = `refresh_payer_status:${episodeId}:${episode.revision}`;
+      const agentResult = await this.agent.executeApprovedAction({
+        actionType: "refresh_payer_status",
+        episodeId: episode.id,
+        idempotencyKey,
+        payloadDigest: digestPayload({
+          episodeId,
+          revision: episode.revision,
+          adjudicationState: episode.adjudicationState,
+        }),
+      });
+
+      if (agentResult.outcome === "failed") {
+        throw Object.assign(new Error(agentResult.message), { status: 502 });
+      }
+      if (agentResult.outcome === "pending_verification") {
+        return this.markPendingVerification(
+          episode,
+          "refresh_payer_status",
+          idempotencyKey,
+          agentResult.message,
+        );
+      }
+
+      const at = getDemoClock();
+      const receiptId = `receipt-status-refresh-${episode.id}-${at}`;
+      const followUpAt = addDays(at, 7);
+      const observationId = `obs-${episode.id}-payer-refresh-${at}`;
+      const evidenceReference = `DocumentReference/doc-portal-refresh-${episode.id}-${at}`;
+
+      const next: ClaimEpisode = {
+        ...episode,
+        // adjudicationState intentionally unchanged: a status refresh only
+        // re-confirms the existing payer status, it never infers paid, and
+        // it never touches resolutionState away from its non-approval state.
+        issue: `Payer status re-confirmed (${episode.adjudicationState}); next follow-up ${followUpAt}`,
+        statusRefreshReceiptId: receiptId,
+        nextFollowUpAt: followUpAt,
+        lastPayerCheckAt: at,
+        revision: episode.revision + 1,
+        lastVerifiedAt: at,
+        evidence: [
+          ...episode.evidence,
+          {
+            id: `ev-${receiptId}`,
+            title: "Payer portal status refresh",
+            kind: "portal_snapshot",
+            reference: evidenceReference,
+            summary: `Synthetic payer portal re-check confirmed ${episode.adjudicationState}; no remittance yet`,
+            synthetic: true,
+            observedAt: at,
+          },
+        ],
+        activities: [
+          ...episode.activities,
+          activity(
+            episode.id,
+            "status.refreshed",
+            `Payer status re-checked (read-only, no approval); next follow-up ${followUpAt}`,
+            at,
+          ),
+        ],
+      };
+
+      pushObservation(next, {
+        id: observationId,
+        episodeId: episode.id,
+        source: "payer",
+        rawStatus: `Portal re-check: ${episode.adjudicationState}`,
+        normalizedStatus: episode.adjudicationState,
+        observedAt: at,
+        lastVerifiedAt: at,
+        evidenceReference,
+        synthetic: true,
+      });
+
+      const event: DomainEvent = {
+        type: "status.refreshed",
+        id: `event-status-refresh-${receiptId}`,
+        at,
+        episodeId: episode.id,
+        observationId,
+        followUpAt,
+        idempotencyKey,
+      };
+
+      this.store.replaceEpisode(next);
+      this.store.appendEvent(event);
+      await this.store.rememberExecution(idempotencyKey, receiptId);
+      return {
+        snapshot: await this.store.commit(),
+        receiptId,
+        followUpAt,
+        idempotent: false,
+        message: `Payer status re-confirmed (${episode.adjudicationState}); next follow-up ${followUpAt}.`,
+      };
+    } catch (error) {
+      await this.store.abortMutation();
+      throw error;
+    }
+  }
+
+  /** Claim D: correct the rejected field and resubmit as a new claim id. */
+  private async executeCorrectAndResubmit(
     episode: ClaimEpisode,
-    actionType: "submit_claim" | "request_reprocessing",
+    approvalId: string,
+    idempotencyKey: string,
+    scope: ClientApprovalScope,
+  ) {
+    const agentResult = await this.agent.executeApprovedAction({
+      actionType: "correct_and_resubmit",
+      episodeId: episode.id,
+      idempotencyKey,
+      payloadDigest: episode.proposal!.payloadDigest,
+    });
+
+    if (agentResult.outcome === "failed") {
+      throw Object.assign(new Error(agentResult.message), { status: 502 });
+    }
+    if (agentResult.outcome === "pending_verification") {
+      return this.markPendingVerification(
+        episode,
+        "correct_and_resubmit",
+        idempotencyKey,
+        agentResult.message,
+      );
+    }
+
+    const at = getDemoClock();
+    const originalClaimId = episode.claimId ?? `CLM-${episode.id}`;
+    const correctedClaimId = `${originalClaimId}-C1`;
+    const receiptId = `receipt-correct-resubmit-${episode.id}`;
+    const diffArtifactId = `DocumentReference/artifact-correction-${episode.id}`;
+    const oldMemberId = episode.memberId ?? `MEM-OLD-${episode.id}`;
+    const newMemberId = deriveCorrectedMemberId(oldMemberId);
+
+    // Snapshot the ORIGINAL Claim resource (by its original id, before the
+    // claimId/correctedFromClaimId mutation below) so both the original and
+    // the corrected claim are preserved and both appear in buildFhirBundle.
+    // The corrected Claim resource itself is built by buildFhirBundle's main
+    // loop from the episode's new claimId/correctedFromClaimId (which adds
+    // the `related: prior` link), so only the original needs to be snapshot
+    // into fhirResources here.
+    const originalClaimResource = buildClaimResource(episode);
+
+    const next: ClaimEpisode = {
+      ...episode,
+      claimId: correctedClaimId,
+      correctedFromClaimId: originalClaimId,
+      memberId: newMemberId,
+      transportState: "clearinghouse_received",
+      // adjudication remains unconfirmed until the payer responds to the corrected claim.
+      adjudicationState: "not_found",
+      resolutionState: "monitoring",
+      issue: "Corrected claim resubmitted; awaiting clearinghouse/payer acknowledgment",
+      agentAction: null,
+      proposal: null,
+      claimControlNumber: episode.claimControlNumber
+        ? `${episode.claimControlNumber}-C1`
+        : null,
+      revision: episode.revision + 1,
+      lastVerifiedAt: at,
+      fhirResources: [
+        ...episode.fhirResources,
+        ...(originalClaimResource
+          ? [originalClaimResource as unknown as Record<string, unknown>]
+          : []),
+      ],
+      evidence: [
+        ...episode.evidence,
+        {
+          id: `ev-correction-${episode.id}`,
+          title: "Correction diff",
+          kind: "artifact",
+          reference: diffArtifactId,
+          summary:
+            `Corrected the rejected field and resubmitted ${originalClaimId} as ${correctedClaimId}. ` +
+            `Member id corrected: ${oldMemberId} -> ${newMemberId}.`,
+          synthetic: true,
+          observedAt: at,
+        },
+        {
+          id: `ev-${receiptId}`,
+          title: "Resubmission receipt",
+          kind: "receipt",
+          reference: `ClaimResponse/${receiptId}`,
+          summary: "Synthetic clearinghouse accepted corrected resubmission",
+          synthetic: true,
+          observedAt: at,
+        },
+      ],
+      activities: [
+        ...episode.activities,
+        activity(
+          episode.id,
+          "approval.consumed",
+          "Allow once consumed for correct and resubmit",
+          at,
+        ),
+        activity(
+          episode.id,
+          "claim.corrected_resubmitted",
+          `Corrected claim ${correctedClaimId} resubmitted (was ${originalClaimId}); ` +
+            `member id corrected: ${oldMemberId} -> ${newMemberId}`,
+          at,
+        ),
+      ],
+    };
+
+    pushObservation(next, {
+      id: `obs-${episode.id}-clearinghouse-resubmit`,
+      episodeId: episode.id,
+      source: "clearinghouse",
+      rawStatus: "Corrected claim received",
+      normalizedStatus: "clearinghouse_received",
+      observedAt: at,
+      lastVerifiedAt: at,
+      evidenceReference: diffArtifactId,
+      synthetic: true,
+    });
+
+    const events: DomainEvent[] = [
+      {
+        type: "approval.consumed",
+        id: `event-approval-${approvalId}`,
+        at,
+        episodeId: episode.id,
+        approvalId,
+        actionType: "correct_and_resubmit",
+        idempotencyKey,
+        proposalId: scope.proposalId,
+        payloadDigest: scope.payloadDigest,
+        episodeRevision: scope.episodeRevision,
+        fingerprint: scope.fingerprint,
+        receiptId,
+      },
+      {
+        type: "claim.corrected_resubmitted",
+        id: `event-correct-resubmit-${receiptId}`,
+        at,
+        episodeId: episode.id,
+        originalClaimId,
+        correctedClaimId,
+        receiptId,
+        idempotencyKey,
+      },
+    ];
+
+    this.store.replaceEpisode(next);
+    for (const event of events) this.store.appendEvent(event);
+    await this.store.rememberExecution(idempotencyKey, receiptId);
+    return {
+      snapshot: await this.store.commit(),
+      receiptId,
+      correctedClaimId,
+      idempotent: false,
+    };
+  }
+
+  /** Claim E: send only the existing signed supporting note to the payer. */
+  private async executeSendDocumentation(
+    episode: ClaimEpisode,
+    approvalId: string,
+    idempotencyKey: string,
+    scope: ClientApprovalScope,
+  ) {
+    const agentResult = await this.agent.executeApprovedAction({
+      actionType: "send_documentation",
+      episodeId: episode.id,
+      idempotencyKey,
+      payloadDigest: episode.proposal!.payloadDigest,
+    });
+
+    if (agentResult.outcome === "failed") {
+      throw Object.assign(new Error(agentResult.message), { status: 502 });
+    }
+    if (agentResult.outcome === "pending_verification") {
+      return this.markPendingVerification(
+        episode,
+        "send_documentation",
+        idempotencyKey,
+        agentResult.message,
+      );
+    }
+
+    const at = getDemoClock();
+    const receiptId = `receipt-send-documentation-${episode.id}`;
+    const signedNote = episode.evidence.find((e) => e.kind === "note");
+    const packetReference = signedNote?.reference ?? `DocumentReference/doc-note-${episode.id}`;
+    const followUpAt = addDays(at, 7);
+
+    const next: ClaimEpisode = {
+      ...episode,
+      // adjudicationState intentionally unchanged (stays info_requested): sending
+      // documentation never implies payer acceptance or payment.
+      resolutionState: "waiting_on_payer",
+      issue: `Documentation sent; awaiting payer review by ${followUpAt}`,
+      agentAction: null,
+      proposal: null,
+      documentationReceiptId: receiptId,
+      nextFollowUpAt: followUpAt,
+      revision: episode.revision + 1,
+      lastVerifiedAt: at,
+      evidence: [
+        ...episode.evidence,
+        {
+          id: `ev-${receiptId}`,
+          title: "Documentation packet receipt",
+          kind: "receipt",
+          reference: `ClaimResponse/${receiptId}`,
+          summary: `Sent ${packetReference} to payer in response to the documentation request`,
+          synthetic: true,
+          observedAt: at,
+        },
+      ],
+      activities: [
+        ...episode.activities,
+        activity(
+          episode.id,
+          "approval.consumed",
+          "Allow once consumed for send documentation",
+          at,
+        ),
+        activity(episode.id, "documentation.sent", `Sent ${packetReference} to payer`, at),
+      ],
+    };
+
+    const events: DomainEvent[] = [
+      {
+        type: "approval.consumed",
+        id: `event-approval-${approvalId}`,
+        at,
+        episodeId: episode.id,
+        approvalId,
+        actionType: "send_documentation",
+        idempotencyKey,
+        proposalId: scope.proposalId,
+        payloadDigest: scope.payloadDigest,
+        episodeRevision: scope.episodeRevision,
+        fingerprint: scope.fingerprint,
+        receiptId,
+      },
+      {
+        type: "documentation.sent",
+        id: `event-send-documentation-${receiptId}`,
+        at,
+        episodeId: episode.id,
+        packetReference,
+        receiptId,
+        followUpAt,
+        idempotencyKey,
+      },
+    ];
+
+    this.store.replaceEpisode(next);
+    for (const event of events) this.store.appendEvent(event);
+    await this.store.rememberExecution(idempotencyKey, receiptId);
+    return {
+      snapshot: await this.store.commit(),
+      receiptId,
+      packetReference,
+      followUpAt,
+      idempotent: false,
+    };
+  }
+
+  private async markPendingVerification(
+    episode: ClaimEpisode,
+    actionType: ActionType,
     idempotencyKey: string,
     message: string,
   ) {
@@ -599,9 +1131,15 @@ export class ActionService {
     const next: ClaimEpisode = {
       ...episode,
       // Keep proposal for safe retry after verification; no success mutation.
-      resolutionState: "approval_required",
+      // claim-b's read-only refresh has no proposal and must never enter
+      // approval_required, so it keeps its existing resolutionState.
+      resolutionState:
+        actionType === "refresh_payer_status"
+          ? episode.resolutionState
+          : "approval_required",
       issue: `Pending verification: ${message}`,
-      agentAction: "Retry after verification",
+      agentAction:
+        actionType === "refresh_payer_status" ? episode.agentAction : "Retry after verification",
       activities: [
         ...episode.activities,
         activity(
@@ -624,7 +1162,7 @@ export class ActionService {
     this.store.replaceEpisode(next);
     this.store.appendEvent(event);
     return {
-      snapshot: this.store.commit(),
+      snapshot: await this.store.commit(),
       receiptId: null,
       pendingVerification: true,
       message,

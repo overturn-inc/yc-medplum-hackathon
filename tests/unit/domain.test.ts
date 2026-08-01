@@ -91,7 +91,7 @@ describe("projection and discrepancy (A02 A03 A11 A15 A16 A17)", () => {
     const kpi = computeDashboardKpi(episodes);
     expect(kpi.visitsToday).toBe(1);
     expect(kpi.readyToSubmit).toBe(2);
-    expect(kpi.needsAttention).toBe(3);
+    expect(kpi.needsAttention).toBe(4);
     expect(kpi.verifiedPaidMtd).toBe(1);
     expect(kpi.funnel.denied_under_resolution).toBe(1);
     expect(kpi.funnel.rejected_before_adjudication).toBe(1);

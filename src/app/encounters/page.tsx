@@ -1,6 +1,7 @@
 import { ClaimWorkbench } from "@/components/ClaimWorkbench";
 import { EncountersTable } from "@/components/Tables";
 import { getDemoViewModel, getEpisodeView } from "@/server/demo";
+import { storeFromCookies } from "@/server/request-store";
 
 export const dynamic = "force-dynamic";
 
@@ -9,11 +10,12 @@ export default async function EncountersPage({
 }: {
   searchParams: Promise<{ focus?: string }>;
 }) {
-  const model = await getDemoViewModel();
+  const store = await storeFromCookies();
+  const model = await getDemoViewModel(store);
   if (!model.ok) return null;
   const params = await searchParams;
   const focusId = params.focus ?? "episode-encounter-a";
-  const focus = await getEpisodeView(focusId);
+  const focus = await getEpisodeView(focusId, store);
 
   const rows = model.episodes.map((episode) => {
     const filterKeys = [
@@ -42,6 +44,7 @@ export default async function EncountersPage({
             episode={focus.episode}
             preflight={focus.preflight}
             events={focus.events}
+            agentMode={model.config.agentMode}
           />
         </section>
       )}

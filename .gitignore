@@ -9,4 +9,6 @@ test-results/
 playwright-report/
 var/
 .playwright-data-*/
+.manual-demo*/
+.wrangler/
 *.tsbuildinfo

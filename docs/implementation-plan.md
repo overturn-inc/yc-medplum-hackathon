@@ -1,39 +1,70 @@
 # Implementation plan
 
-Status: Blocked after final validation
+Status: Repair generator complete for demo-completion-repair-1; awaiting Validator
 
-Plan version: v1
+Plan version: v3 (demo completion repair)
 
-Turn state: VALIDATION_FAILED
+Turn state: GENERATED
 
 ## Routing manifest
 
 ```text
 main: Codex, current root session, integration owner
 planner: gpt-5.6-sol, xhigh, isolated read-only agent
-generator: Cursor Generator, cursor-grok-4.5-high, one writable implementation turn
+generator: Cursor Generator, cursor-grok-4.5-high, demo-completion-repair-1
 validator: gpt-5.6-sol, xhigh, fresh isolated read-only agent
 fallbacks: no silent model or adapter substitution
 ```
 
 ## Objective
 
-Build a local-first web demo in this directory that behaves like a minimal PMS and proves one agent-native workflow: detect a source discrepancy, assemble evidence, propose the correct next action, require one-time human approval, execute through a synthetic adapter, and preserve the receipt and follow-up.
+Repair Validator-confirmed defects and deliver a Sites-deployable, concurrency-safe,
+claim-correct demo: real vinext/D1 Worker path, atomic Allow once, server-owned
+action policy, Claim B/D/F semantics, BFF chat boundary, fail-closed ledgers, and
+honest docs.
 
 ## Environment
 
-- Node 20.19 or newer
+- Node 20.19 or newer (Sites/wrangler build prefers Node 22+)
 - npm with committed lockfile
-- Next.js 16 App Router
-- React 19
+- Next.js 16 App Router (local verify via `build:next`)
+- vinext 0.0.50 + Vite 8 + Cloudflare Vite plugin (Sites via `build:sites`)
+- React 19.2.6
 - TypeScript 5.9
-- `@medplum/fhirtypes` and `@medplum/core` 5.1.27, aligned with the linked Medplum clone
+- `@medplum/fhirtypes` and `@medplum/core` 5.1.27
 - Zod 4
-- CSS Modules or plain CSS
+- drizzle-orm 0.45.2; better-sqlite3 for Node SQLite tests only
 - Vitest 4
 - Playwright 1.61
+- Sites hosting: `.openai/hosting.json` D1 binding `DB` (no invented project_id)
 
-Do not add an ORM, external database, UI kit, analytics SDK, authentication provider, or sibling private package dependency.
+## Demo-completion slices (v2)
+
+1. Session-scoped repository + cookie isolation + D1 schema/migration
+2. Strict DomainEvent Zod schemas and fail-closed replay
+3. Verified-paid independent remittance + PMS posting evidence
+4. Medplum claim-scoped R4 mapping
+5. Strict BFF RunEventV1 + SSE-only; run_completed is not a domain receipt
+6. Conversational agent API/UI with proposal-only mutations
+7. Claim B/D/E actions + Encounter A / Claim A / Claim C / Claim F journeys
+8. Expanded unit/contract/replay/db/e2e coverage and `npm run verify`
+9. Honest README, architecture, runbook, submission draft, validation evidence
+
+## Architecture invariants
+
+- A single product claim status is forbidden.
+- Every external observation is immutable and carries source, raw value, normalized value, timestamp, and evidence reference.
+- Submitted requires a transmission receipt; submission ends at clearinghouse_received with adjudication not_found.
+- Reprocessed is not paid.
+- Verified paid requires matching remittance and independent reconciled PMS posting DocumentReference.
+- BFF output cannot mutate healthcare state directly.
+- Approval is scoped to action, target, payload digest, and episode revision.
+- Connected adapter failure never falls back silently.
+- No real PHI, external payer write, or interview asset enters the project.
+- Credentials stay server-side and never use `NEXT_PUBLIC_`.
+- Session reset affects only the current anonymous session.
+
+See also: docs/validation-evidence.md, docs/deployment-runbook.md, docs/hackathon-submission-draft.md.
 
 ## Ordered implementation slices
 

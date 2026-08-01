@@ -15,26 +15,22 @@ import { runPreflight } from "@/domain/preflight";
 import type { ClaimEpisode, DemoSnapshot } from "@/domain/types";
 import { ActionService } from "@/server/actions";
 import { loadServerConfig, publicAdapterStatus } from "@/server/config";
-import {
-  getStore,
-  StoreDegradedError,
-  type LocalEventStore,
-} from "@/server/store";
+import { StoreDegradedError } from "@/server/store";
+import type { SessionRepository } from "@/server/repository";
 
-export function getDemoRuntime(store?: LocalEventStore) {
-  const activeStore = store ?? getStore();
+export async function getDemoRuntime(store: SessionRepository) {
   try {
     loadServerConfig();
   } catch {
     // Local defaults remain authoritative when optional connected config is incomplete.
   }
 
-  let snapshot;
+  let snapshot: DemoSnapshot;
   try {
-    snapshot = activeStore.getSnapshot();
+    snapshot = await store.getSnapshot();
   } catch (error) {
     if (error instanceof StoreDegradedError) {
-      snapshot = activeStore.getSnapshotUnsafe();
+      snapshot = await store.getSnapshotUnsafe();
     } else {
       throw error;
     }
@@ -51,7 +47,7 @@ export function getDemoRuntime(store?: LocalEventStore) {
           clientSecret: process.env.MEDPLUM_CLIENT_SECRET || "missing",
           projectId: process.env.MEDPLUM_PROJECT_ID || "missing",
         })
-      : createLocalHealthcareRepository(() => activeStore.getSnapshot());
+      : createLocalHealthcareRepository(() => snapshot);
 
   const agent =
     agentMode === "bff"
@@ -61,10 +57,10 @@ export function getDemoRuntime(store?: LocalEventStore) {
         })
       : createSyntheticAgentAdapter();
 
-  const actions = new ActionService(activeStore, agent);
+  const actions = new ActionService(store, agent);
 
   return {
-    store: activeStore,
+    store,
     healthcare,
     agent,
     actions,
@@ -101,8 +97,8 @@ function stripBffProposals(
   }));
 }
 
-export async function getDemoViewModel(store?: LocalEventStore) {
-  const runtime = getDemoRuntime(store);
+export async function getDemoViewModel(store: SessionRepository) {
+  const runtime = await getDemoRuntime(store);
 
   try {
     if (runtime.store.getDegraded()) {
@@ -157,7 +153,7 @@ export async function getDemoViewModel(store?: LocalEventStore) {
     }
   } else {
     try {
-      snapshot = runtime.store.getSnapshot();
+      snapshot = await runtime.store.getSnapshot();
     } catch (error) {
       if (error instanceof StoreDegradedError) {
         return {
@@ -197,8 +193,8 @@ export async function getDemoViewModel(store?: LocalEventStore) {
   };
 }
 
-export async function getEpisodeView(episodeId: string, store?: LocalEventStore) {
-  const runtime = getDemoRuntime(store);
+export async function getEpisodeView(episodeId: string, store: SessionRepository) {
+  const runtime = await getDemoRuntime(store);
 
   let snapshot: DemoSnapshot;
   if (runtime.healthcare.mode === "medplum") {
@@ -209,7 +205,7 @@ export async function getEpisodeView(episodeId: string, store?: LocalEventStore)
     }
   } else {
     try {
-      snapshot = runtime.store.getSnapshot();
+      snapshot = await runtime.store.getSnapshot();
     } catch (error) {
       if (error instanceof StoreDegradedError) return null;
       throw error;
@@ -220,11 +216,16 @@ export async function getEpisodeView(episodeId: string, store?: LocalEventStore)
   if (!episode) return null;
 
   if (runtime.config.agentMode === "bff") {
-    episode = {
-      ...episode,
-      proposal: null,
-      issue: episode.issue ?? "Connect BFF to generate agent proposals",
-    };
+    const status = runtime.agent.probe
+      ? await runtime.agent.probe()
+      : { available: false, error: "BFF probe unavailable" };
+    if (!status.available) {
+      episode = {
+        ...episode,
+        proposal: null,
+        issue: status.error ?? "Connect BFF to generate agent proposals",
+      };
+    }
   }
 
   const view = enrichEpisode(episode);
@@ -241,8 +242,8 @@ export async function getEpisodeView(episodeId: string, store?: LocalEventStore)
     events:
       runtime.healthcare.mode === "medplum"
         ? []
-        : runtime.store
-            .getSnapshot()
-            .events.filter((e) => "episodeId" in e && e.episodeId === episodeId),
+        : snapshot.events.filter(
+            (e) => "episodeId" in e && e.episodeId === episodeId,
+          ),
   };
 }

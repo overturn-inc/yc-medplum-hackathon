@@ -76,10 +76,32 @@ export type ActionType =
   | "request_reprocessing"
   | "send_documentation"
   | "submit_appeal"
-  | "post_payment";
+  | "post_payment"
+  | "refresh_payer_status"
+  | "correct_and_resubmit";
 
 export type HealthcareMode = "local" | "medplum";
 export type AgentMode = "synthetic" | "bff";
+
+export type AgentIntent =
+  | "status"
+  | "reason"
+  | "evidence"
+  | "next_action"
+  | "request_action"
+  | "unsupported";
+
+export interface ConversationMessage {
+  id: string;
+  episodeId: string;
+  role: "user" | "assistant";
+  content: string;
+  intent: AgentIntent;
+  citations: Array<{ reference: string; source: string; observedAt: string; title: string }>;
+  createdAt: string;
+  clientRequestId?: string;
+  proposalId?: string;
+}
 
 export interface SourceObservation {
   id: string;
@@ -122,7 +144,8 @@ export interface EvidenceItem {
     | "era_pdf"
     | "note"
     | "artifact"
-    | "receipt";
+    | "receipt"
+    | "pms_posting";
   reference: string;
   summary: string;
   synthetic: boolean;
@@ -155,6 +178,8 @@ export interface AgentProposal {
   episodeRevision: number;
   fingerprint: string;
   createdAt: string;
+  /** Synthetic member-id correction preview for Claim D (and similar). */
+  memberIdCorrection?: { oldMemberId: string; newMemberId: string };
 }
 
 export interface ApprovalReceipt {
@@ -244,6 +269,22 @@ export interface ClaimEpisode {
   claimControlNumber: string | null;
   /** Materialized FHIR resources created by approved actions (Provenance, AuditEvent, etc.). */
   fhirResources: Array<Record<string, unknown>>;
+  /** Set once a corrected claim has been resubmitted in place of this episode's original claim. */
+  correctedFromClaimId?: string | null;
+  /** Execution receipt id once a documentation packet has been sent to the payer. */
+  documentationReceiptId?: string | null;
+  /** Execution receipt id once a payer status refresh has been recorded. */
+  statusRefreshReceiptId?: string | null;
+  /**
+   * Source-of-truth member/subscriber id on file for this episode. For
+   * claim-d, the seeded value is intentionally stale (the actual cause of
+   * the clearinghouse rejection); `correct_and_resubmit` corrects it to a
+   * new synthetic id (see `deriveCorrectedMemberId`) and this field then
+   * reflects the corrected value.
+   */
+  memberId?: string | null;
+  /** Conversational agent turns scoped to this episode. */
+  conversation?: ConversationMessage[];
 }
 
 export interface DemoSnapshot {
@@ -364,4 +405,53 @@ export type DomainEvent =
       actionType: ActionType;
       idempotencyKey: string;
       message: string;
+    }
+  | {
+      type: "conversation.message.appended";
+      id: string;
+      at: string;
+      sessionId: string;
+      episodeId: string;
+      messageId: string;
+      role: "user" | "assistant";
+      intent: AgentIntent;
+      clientRequestId?: string;
+    }
+  | {
+      type: "status.refreshed";
+      id: string;
+      at: string;
+      episodeId: string;
+      observationId: string;
+      followUpAt: string;
+      idempotencyKey: string;
+    }
+  | {
+      type: "claim.corrected_resubmitted";
+      id: string;
+      at: string;
+      episodeId: string;
+      originalClaimId: string;
+      correctedClaimId: string;
+      receiptId: string;
+      idempotencyKey: string;
+    }
+  | {
+      type: "documentation.sent";
+      id: string;
+      at: string;
+      episodeId: string;
+      packetReference: string;
+      receiptId: string;
+      followUpAt: string;
+      idempotencyKey: string;
+    }
+  | {
+      type: "action.reserved";
+      id: string;
+      at: string;
+      episodeId: string;
+      actionType: ActionType;
+      clientRequestId: string;
+      reservationId: string;
     };

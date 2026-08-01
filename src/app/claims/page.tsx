@@ -1,6 +1,7 @@
 import { ClaimsTable } from "@/components/Tables";
 import { getDemoViewModel } from "@/server/demo";
 import { isNeedsAttention } from "@/domain/projector";
+import { storeFromCookies } from "@/server/request-store";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,8 @@ export default async function ClaimsPage({
 }: {
   searchParams: Promise<{ filter?: string }>;
 }) {
-  const model = await getDemoViewModel();
+  const store = await storeFromCookies();
+  const model = await getDemoViewModel(store);
   if (!model.ok) return null;
   const { filter = "all" } = await searchParams;
 

@@ -171,4 +171,69 @@ describe("FHIR fixture validation (A19)", () => {
       bundle.entry?.some((e) => e.resource?.resourceType === "AuditEvent"),
     ).toBe(true);
   });
+
+  it("claim D correct_and_resubmit preserves both Claim resources with a related:prior link and a member id diff (P1)", async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "pms-fhir-claim-d-"));
+    const store = new LocalEventStore({
+      dataDir,
+      healthcareMode: "local",
+      agentMode: "synthetic",
+    });
+    const actions = new ActionService(store);
+
+    const before = store.getEpisode("episode-claim-d")!;
+    expect(before.memberId).toBe("MEM-OLD-4004");
+    const originalClaimId = before.claimId!;
+
+    const result = await actions.decide({
+      episodeId: "episode-claim-d",
+      actionType: "correct_and_resubmit",
+      decision: "allow_once",
+      scope: proposalApprovalFields(before.proposal!),
+    });
+    expect("correctedClaimId" in result && result.correctedClaimId).toBeTruthy();
+
+    const after = store.getEpisode("episode-claim-d")!;
+    expect(after.correctedFromClaimId).toBe(originalClaimId);
+    expect(after.claimId).not.toBe(originalClaimId);
+    expect(after.memberId).toBe("MEM-NEW-4004");
+
+    const episodes = store.getSnapshot().episodes;
+    const bundle = buildFhirBundle(episodes);
+    expect(validateBundle(bundle)).toEqual([]);
+
+    const claims = (bundle.entry ?? [])
+      .map((e) => e.resource)
+      .filter(
+        (r): r is Resource & { id: string; related?: unknown[] } =>
+          r?.resourceType === "Claim",
+      );
+    const originalClaim = claims.find(
+      (c) => c.id === originalClaimId.toLowerCase(),
+    );
+    const correctedClaim = claims.find((c) => c.id === after.claimId!.toLowerCase());
+    expect(originalClaim, "original claim must still be present in the bundle").toBeTruthy();
+    expect(correctedClaim, "corrected claim must be present in the bundle").toBeTruthy();
+    expect(originalClaim).not.toBe(correctedClaim);
+
+    const related = (
+      correctedClaim as unknown as {
+        related?: Array<{
+          claim?: { reference?: string };
+          relationship?: { coding?: Array<{ system?: string; code?: string }> };
+        }>;
+      }
+    ).related;
+    expect(related?.[0]?.claim?.reference).toBe(`Claim/${originalClaimId.toLowerCase()}`);
+    expect(related?.[0]?.relationship?.coding?.[0]).toMatchObject({
+      system: "http://terminology.hl7.org/CodeSystem/ex-relatedclaimrelationship",
+      code: "prior",
+    });
+
+    const diffEvidence = after.evidence.find((e) => e.kind === "artifact" && e.title === "Correction diff");
+    expect(diffEvidence?.summary).toContain("MEM-OLD-4004 -> MEM-NEW-4004");
+    expect(after.activities.some((a) => a.summary.includes("MEM-OLD-4004 -> MEM-NEW-4004"))).toBe(
+      true,
+    );
+  });
 });

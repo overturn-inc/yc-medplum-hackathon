@@ -1,8 +1,10 @@
 import type {
   Bundle,
+  BundleEntry,
   Claim,
   ClaimResponse,
   Coverage,
+  DocumentReference,
   Encounter,
   Organization,
   Patient,
@@ -11,6 +13,7 @@ import type {
   Task,
 } from "@medplum/fhirtypes";
 import { evaluateDiscrepancies } from "@/domain/discrepancy";
+import { isVerifiedPaid } from "@/domain/verified-paid";
 import type {
   ClaimEpisode,
   DemoSnapshot,
@@ -57,16 +60,27 @@ function patientName(patient?: Patient): string {
   return combined || `Patient/${patient?.id ?? "unknown"}`;
 }
 
-function mapAdjudication(
-  status?: string,
+/**
+ * Base adjudication mapping from claim/payer-reported signals only.
+ * NEVER maps ClaimResponse.outcome === "complete" or Claim.status === "active"
+ * to "paid": those mean the payer processed or queued a response, not that
+ * payment was made. "paid" is only ever set later, after independently
+ * verified remittance + posting evidence exists (see isVerifiedPaid below).
+ */
+function mapAdjudicationBase(
+  claim: Claim,
+  response: ClaimResponse | undefined,
 ): ClaimEpisode["adjudicationState"] {
-  const value = (status ?? "").toLowerCase();
-  if (value.includes("complete") || value === "active") return "paid";
-  if (value.includes("denied") || value.includes("error")) return "denied";
-  if (value.includes("partial")) return "partial";
-  if (value.includes("pended") || value.includes("pending")) return "pending";
-  if (value) return "accepted_for_processing";
-  return "not_found";
+  if (response) {
+    if (response.outcome === "error") return "denied";
+    if (response.outcome === "partial") return "partial";
+    // "complete" or "queued": payer processed/queued the request only.
+    return "accepted_for_processing";
+  }
+  if (claim.status === "cancelled" || claim.status === "entered-in-error") {
+    return "not_found";
+  }
+  return "accepted_for_processing";
 }
 
 /**
@@ -128,8 +142,10 @@ export function createMedplumHealthcareRepository(input: {
     return json.access_token;
   }
 
-  async function fetchBundle(accessToken: string): Promise<Bundle> {
-    const url = `${base}/fhir/R4/Patient?_count=50&_revinclude=Encounter:subject&_revinclude=Coverage:beneficiary&_revinclude=Claim:patient&_revinclude=Task:patient&_revinclude=DocumentReference:subject&_revinclude=ChargeItem:subject&_revinclude=Condition:subject&_revinclude=ClaimResponse:patient&_revinclude=PaymentReconciliation:patient&_revinclude=Provenance:target&_revinclude=AuditEvent:patient&_include=Claim:insurer&_include=Coverage:payor&_project=${encodeURIComponent(input.projectId)}`;
+  async function fetchFhirSearch(
+    url: string,
+    accessToken: string,
+  ): Promise<Bundle> {
     let response: Response;
     try {
       response = await fetchImpl(url, {
@@ -162,6 +178,32 @@ export function createMedplumHealthcareRepository(input: {
     return json;
   }
 
+  async function fetchBundle(accessToken: string): Promise<Bundle> {
+    // PaymentReconciliation:patient is not a valid R4 _revinclude (there is
+    // no "patient" search parameter on PaymentReconciliation), so it is
+    // never requested here. Claim/ClaimResponse/DocumentReference/Task are
+    // still fetched via valid revincludes off the primary Patient search.
+    const patientUrl = `${base}/fhir/R4/Patient?_count=50&_revinclude=Encounter:subject&_revinclude=Coverage:beneficiary&_revinclude=Claim:patient&_revinclude=Task:patient&_revinclude=DocumentReference:subject&_revinclude=ChargeItem:subject&_revinclude=Condition:subject&_revinclude=ClaimResponse:patient&_revinclude=Provenance:target&_revinclude=AuditEvent:patient&_include=Claim:insurer&_include=Coverage:payor&_project=${encodeURIComponent(input.projectId)}`;
+    const patientBundle = await fetchFhirSearch(patientUrl, accessToken);
+
+    // PaymentReconciliation has no patient- or claim-scoped R4 search
+    // parameter, so it is fetched as its own project-scoped search and
+    // linked to a specific claim only via exact detail.request/response
+    // references during mapping (never via patient-wide inference).
+    const paymentUrl = `${base}/fhir/R4/PaymentReconciliation?_count=50&_project=${encodeURIComponent(input.projectId)}`;
+    const paymentBundle = await fetchFhirSearch(paymentUrl, accessToken);
+
+    const entry: BundleEntry[] = [
+      ...(patientBundle.entry ?? []),
+      ...(paymentBundle.entry ?? []),
+    ];
+    return {
+      resourceType: "Bundle",
+      type: "searchset",
+      entry,
+    };
+  }
+
   function mapBundleToSnapshot(bundle: Bundle): DemoSnapshot {
     const resources = (bundle.entry ?? [])
       .map((e) => e.resource)
@@ -189,20 +231,13 @@ export function createMedplumHealthcareRepository(input: {
     const orgs = byType<Organization>("Organization");
     const orgById = new Map(orgs.map((o) => [o.id!, o]));
     const coverages = byType<Coverage>("Coverage");
+    const coverageById = new Map(coverages.map((c) => [c.id!, c]));
     const encounters = byType<Encounter>("Encounter");
     const claims = byType<Claim>("Claim");
     const claimResponses = byType<ClaimResponse>("ClaimResponse");
     const payments = byType<PaymentReconciliation>("PaymentReconciliation");
     const tasks = byType<Task>("Task");
-    const docs = resources.filter(
-      (r) => r.resourceType === "DocumentReference",
-    ) as Array<{
-      resourceType: "DocumentReference";
-      id?: string;
-      description?: string;
-      date?: string;
-      subject?: { reference?: string };
-    }>;
+    const docs = byType<DocumentReference>("DocumentReference");
     const chargeItems = resources.filter(
       (r) => r.resourceType === "ChargeItem",
     ) as Array<{
@@ -221,25 +256,63 @@ export function createMedplumHealthcareRepository(input: {
     const episodes: ClaimEpisode[] = [];
     const now = getDemoClock();
 
-    function docsForPatient(patientId: string): EvidenceItem[] {
+    /**
+     * Exact-linkage document lookup. When `claim` is given, a document is
+     * attached ONLY when its `context.related` points at exactly this Claim
+     * or its ClaimResponse, or -- when it has no related links at all -- its
+     * own identifier exactly matches this claim's control number. There is
+     * deliberately NO encounter-wide fallback here: multiple claims can
+     * share one encounter, and an encounter-only link can't tell them
+     * apart, so it would risk attaching one claim's evidence to another.
+     * When `claim` is undefined (a connected encounter with no claim yet),
+     * the encounter link is the only linkage available and is used as-is.
+     */
+    function docsForClaim(
+      claim: Claim | undefined,
+      response: ClaimResponse | undefined,
+      encounterId: string | undefined,
+      patientId: string,
+    ): Array<{ raw: DocumentReference; evidence: EvidenceItem }> {
+      const claimControlNumber = claim?.identifier?.[0]?.value;
       return docs
-        .filter((doc) => refId(doc.subject?.reference) === patientId)
+        .filter((doc) => {
+          if (refId(doc.subject?.reference) !== patientId) return false;
+          const related = (doc.context?.related ?? [])
+            .map((r) => refId(r.reference))
+            .filter(Boolean) as string[];
+          if (claim) {
+            if (related.includes(claim.id!)) return true;
+            if (response?.id && related.includes(response.id)) return true;
+            if (related.length > 0) return false;
+            if (claimControlNumber) {
+              return (doc.identifier ?? []).some(
+                (id) => id.value === claimControlNumber,
+              );
+            }
+            return false;
+          }
+          return !!encounterId && related.includes(encounterId);
+        })
         .map((doc, index) => {
           const description = doc.description ?? "";
           const lower = description.toLowerCase();
-          return {
+          const kind = lower.includes("835")
+            ? ("raw_835" as const)
+            : lower.includes("277")
+              ? ("raw_277" as const)
+              : lower.includes("posting")
+                ? ("pms_posting" as const)
+                : ("portal_snapshot" as const);
+          const evidence: EvidenceItem = {
             id: `medplum-doc-${doc.id ?? index}`,
             title: description || `DocumentReference/${doc.id}`,
-            kind: lower.includes("835")
-              ? ("raw_835" as const)
-              : lower.includes("277")
-                ? ("raw_277" as const)
-                : ("portal_snapshot" as const),
+            kind,
             reference: `DocumentReference/${doc.id ?? index}`,
             summary: `${description || "Medplum document"} [connected read; raw 277/835 remain DocumentReference]`,
             synthetic: false,
             observedAt: doc.date ?? now,
           };
+          return { raw: doc, evidence };
         });
     }
 
@@ -247,6 +320,48 @@ export function createMedplumHealthcareRepository(input: {
       return coverages.find(
         (c) => refId(c.beneficiary?.reference) === patientId,
       );
+    }
+
+    /**
+     * Claim-scoped coverage: only `Claim.insurance.coverage` (focal
+     * insurance first, else the first entry) counts. Deliberately NO
+     * patient-wide fallback: when a claim doesn't specify its own coverage,
+     * this returns undefined (coverageActive omitted) rather than risk
+     * attaching a different claim's coverage from the same patient.
+     */
+    function coverageForClaim(claim: Claim): Coverage | undefined {
+      const coverageRef =
+        claim.insurance?.find((i) => i.focal)?.coverage?.reference ??
+        claim.insurance?.[0]?.coverage?.reference;
+      if (!coverageRef) return undefined;
+      return coverageById.get(refId(coverageRef) ?? "");
+    }
+
+    /**
+     * Parses a PMS posting DocumentReference's own JSON content (base64 in
+     * `content[0].attachment.data`) for `controlNumber` and `postedAmount`.
+     * Returns null on any missing/malformed content -- callers must never
+     * treat an unparseable posting document as proof of posting, and must
+     * never substitute the claim's paid amount for a missing postedAmount.
+     */
+    function parsePostingContent(
+      doc: DocumentReference | undefined,
+    ): { controlNumber: string; postedAmount: number } | null {
+      const data = doc?.content?.[0]?.attachment?.data;
+      if (!data) return null;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(Buffer.from(data, "base64").toString("utf8"));
+      } catch {
+        return null;
+      }
+      if (!parsed || typeof parsed !== "object") return null;
+      const controlNumber = (parsed as Record<string, unknown>).controlNumber;
+      const postedAmount = (parsed as Record<string, unknown>).postedAmount;
+      if (typeof controlNumber !== "string" || typeof postedAmount !== "number") {
+        return null;
+      }
+      return { controlNumber, postedAmount };
     }
 
     function payerName(coverage?: Coverage, claim?: Claim): string {
@@ -263,6 +378,97 @@ export function createMedplumHealthcareRepository(input: {
         claim?.insurer?.display ??
         "Connected payer"
       );
+    }
+
+    /** Only PaymentReconciliation whose detail.request/response references
+     * THIS exact claim or claim response are considered; a resource that
+     * only references another claim is rejected, never applied here. */
+    function paymentForClaim(
+      claim: Claim,
+      response: ClaimResponse | undefined,
+    ): PaymentReconciliation | undefined {
+      return payments.find((p) =>
+        (p.detail ?? []).some((d) => {
+          const requestId = refId(d.request?.reference);
+          const responseId = refId(d.response?.reference);
+          return (
+            requestId === claim.id ||
+            (!!response && !!responseId && responseId === response.id)
+          );
+        }),
+      );
+    }
+
+    /** Amount attributed to this specific claim: prefer the detail line's
+     * own allocation; only fall back to the bulk paymentAmount when the
+     * reconciliation has a single detail line naming this claim (so the
+     * bulk total cannot be misattributed across multiple claims). */
+    function paidAmountForClaim(
+      payment: PaymentReconciliation | undefined,
+      claim: Claim,
+    ): number | null {
+      if (!payment) return null;
+      const detail = payment.detail ?? [];
+      const matching = detail.find(
+        (d) => refId(d.request?.reference) === claim.id,
+      );
+      if (matching?.amount?.value != null) return matching.amount.value;
+      if (detail.length <= 1) return payment.paymentAmount?.value ?? null;
+      return null;
+    }
+
+    /**
+     * Task lookup requires an exact `Task.focus` match on this Claim (or, for
+     * a pre-claim connected encounter, this Encounter). Deliberately NO
+     * patient-wide fallback: an unfocused task can't tell which of several
+     * claims for the same patient it belongs to, so it is never attached.
+     */
+    function taskForClaim(
+      claim: Claim | undefined,
+      encounterId: string | undefined,
+    ): Task | undefined {
+      return tasks.find((t) => {
+        const focusId = refId(t.focus?.reference);
+        if (!focusId) return false;
+        return (
+          (!!claim && focusId === claim.id) ||
+          (!claim && !!encounterId && focusId === encounterId)
+        );
+      });
+    }
+
+    function provenanceForClaim(
+      claim: Claim | undefined,
+      encounterId: string | undefined,
+    ): Resource | undefined {
+      return provenances.find((p) => {
+        const targets = (
+          (p as unknown as { target?: Array<{ reference?: string }> })
+            .target ?? []
+        )
+          .map((t) => refId(t.reference))
+          .filter(Boolean) as string[];
+        return (
+          (!!claim && targets.includes(claim.id!)) ||
+          (!!encounterId && targets.includes(encounterId))
+        );
+      });
+    }
+
+    function auditsForClaim(
+      claim: Claim | undefined,
+      encounterId: string | undefined,
+    ): Resource[] {
+      return audits.filter((a) => {
+        const entities =
+          (a as unknown as { entity?: Array<{ what?: { reference?: string } }> })
+            .entity ?? [];
+        return entities.some((e) => {
+          const id = refId(e.what?.reference);
+          if (!id) return false;
+          return (!!claim && id === claim.id) || (!!encounterId && id === encounterId);
+        });
+      });
     }
 
     for (const claim of claims) {
@@ -284,49 +490,43 @@ export function createMedplumHealthcareRepository(input: {
       const encounterId = refId(encounterRef);
       if (encounterId) claimedEncounterIds.add(encounterId);
       const encounter = encounters.find((e) => e.id === encounterId);
-      const coverage = coverageForPatient(patientId);
+      const coverage = coverageForClaim(claim);
+      // Exact match only: ClaimResponse.request must reference THIS claim.
       const response = claimResponses.find(
         (r) => refId(r.request?.reference) === claim.id,
       );
-      const payment = payments.find((p) => {
-        const pay = p as PaymentReconciliation & {
-          payment?: { amount?: { value?: number }; identifier?: { value?: string } };
-        };
-        return (
-          pay.payment?.identifier?.value === claim.id ||
-          p.detail?.some((d) => refId(d.request?.reference) === claim.id)
-        );
-      }) as
-        | (PaymentReconciliation & {
-            payment?: {
-              amount?: { value?: number };
-              identifier?: { value?: string };
-            };
-          })
-        | undefined;
-      const task = tasks.find(
-        (t) =>
-          refId(t.for?.reference) === patientId ||
-          refId(t.focus?.reference) === claim.id,
-      );
-      const relatedCharges = chargeItems.filter(
-        (c) =>
-          refId(c.subject?.reference) === patientId ||
-          (encounterId && refId(c.context?.reference) === encounterId),
-      );
+      // Exact match only: rejects PaymentReconciliation resources whose
+      // detail lines reference a different claim/claimResponse.
+      const payment = paymentForClaim(claim, response);
+      const task = taskForClaim(claim, encounterId);
+      // Encounter/context-specific only; never a patient-wide charge scan.
+      const relatedCharges = encounterId
+        ? chargeItems.filter((c) => refId(c.context?.reference) === encounterId)
+        : [];
       const billed =
         claim.total?.value ??
         relatedCharges.reduce(
           (sum, c) => sum + (c.priceOverride?.value ?? 0),
           0,
         );
-      const paid = payment?.payment?.amount?.value ?? null;
-      const adjudication = mapAdjudication(
-        response?.status ?? payment?.status ?? claim.status,
-      );
+      const paid = paidAmountForClaim(payment, claim);
       const remittanceState = payment ? "received" : "none";
+      const claimControlNumber = claim.identifier?.[0]?.value ?? claim.id;
+      const claimDocsWithRaw = docsForClaim(claim, response, encounterId, patientId);
+      const claimDocs = claimDocsWithRaw.map((d) => d.evidence);
+      const postingDocWithRaw = claimDocsWithRaw.find(
+        (d) => d.evidence.kind === "pms_posting",
+      );
+      const postingDoc = postingDocWithRaw?.evidence;
+      // Parse the posting document's OWN content for its control number and
+      // posted amount; never derive `posted` from `paid`. Reconciled only
+      // when the content parses AND its control number exactly matches this
+      // claim's control number -- a posting document that merely exists (or
+      // is empty/malformed, or claims a different claim's control number) is
+      // never accepted as PMS posting proof.
+      const postingContent = parsePostingContent(postingDocWithRaw?.raw);
       const postingState =
-        paid != null && remittanceState === "received"
+        postingContent && postingContent.controlNumber === claimControlNumber
           ? "reconciled"
           : "unposted";
 
@@ -349,6 +549,7 @@ export function createMedplumHealthcareRepository(input: {
           synthetic: false,
         });
       };
+      const adjudication = mapAdjudicationBase(claim, response);
       pushObs(
         "pms",
         claim.status ?? "active",
@@ -364,12 +565,17 @@ export function createMedplumHealthcareRepository(input: {
         );
       }
       if (payment) {
+        // Remittance receipt only; "received" (not "paid") until posting
+        // is independently reconciled below.
         pushObs(
           "remittance",
           payment.status ?? "active",
-          "paid",
+          "received",
           `PaymentReconciliation/${payment.id}`,
         );
+      }
+      if (postingDoc && postingState === "reconciled") {
+        pushObs("posting", "Posted", "reconciled", postingDoc.reference);
       }
 
       const episode: ClaimEpisode = {
@@ -419,14 +625,14 @@ export function createMedplumHealthcareRepository(input: {
         revision: 1,
         observations,
         evidence: [
-          ...docsForPatient(patientId),
-          ...(provenances.length
+          ...claimDocs,
+          ...(provenanceForClaim(claim, encounterId)
             ? [
                 {
                   id: `ev-prov-${claim.id}`,
                   title: "Connected Provenance",
                   kind: "authorization" as const,
-                  reference: `Provenance/${provenances[0]?.id}`,
+                  reference: `Provenance/${provenanceForClaim(claim, encounterId)!.id}`,
                   summary: "Provenance from Medplum Bundle",
                   synthetic: false,
                   observedAt: now,
@@ -440,7 +646,7 @@ export function createMedplumHealthcareRepository(input: {
           paid,
           adjustment: null,
           patientResponsibility: null,
-          posted: postingState === "reconciled" ? paid : null,
+          posted: postingState === "reconciled" ? postingContent!.postedAmount : null,
         },
         serviceLines: (claim.item ?? relatedCharges).map((item, index) => {
           const claimItem = item as {
@@ -476,14 +682,20 @@ export function createMedplumHealthcareRepository(input: {
           ? `ClaimResponse/${response.id}`
           : null,
         reprocessingReceiptId: null,
-        remittanceControlNumber: payment?.payment?.identifier?.value ?? null,
-        claimControlNumber: claim.identifier?.[0]?.value ?? claim.id,
-        fhirResources: [
-          ...provenances,
-          ...audits,
-        ] as unknown as Array<Record<string, unknown>>,
+        remittanceControlNumber: payment?.paymentIdentifier?.value ?? null,
+        claimControlNumber,
+        fhirResources: auditsForClaim(claim, encounterId) as unknown as Array<
+          Record<string, unknown>
+        >,
       };
       episode.discrepancies = evaluateDiscrepancies(episode);
+      // "paid" is only set once independent remittance + posting evidence
+      // is verified; otherwise the payer/PMS-reported adjudication stands.
+      if (isVerifiedPaid(episode)) {
+        episode.adjudicationState = "paid";
+        episode.settlementState = "received";
+        episode.discrepancies = evaluateDiscrepancies(episode);
+      }
       episodes.push(episode);
     }
 
@@ -498,10 +710,10 @@ export function createMedplumHealthcareRepository(input: {
       }
       const patient = patientById.get(patientId)!;
       const coverage = coverageForPatient(patientId);
+      // Encounter-scoped only; never a patient-wide charge scan (avoids
+      // pulling another encounter's charges onto this one).
       const relatedCharges = chargeItems.filter(
-        (c) =>
-          refId(c.context?.reference) === encounter.id ||
-          refId(c.subject?.reference) === patientId,
+        (c) => refId(c.context?.reference) === encounter.id,
       );
       const billed = relatedCharges.reduce(
         (sum, c) => sum + (c.priceOverride?.value ?? 0),
@@ -555,7 +767,9 @@ export function createMedplumHealthcareRepository(input: {
             synthetic: false,
           },
         ],
-        evidence: docsForPatient(patientId),
+        evidence: docsForClaim(undefined, undefined, encounter.id, patientId).map(
+          (d) => d.evidence,
+        ),
         financial: {
           billed: billed || 0,
           allowed: null,
@@ -626,6 +840,7 @@ export function createMedplumHealthcareRepository(input: {
         "Connected Medplum mode requires live credentials",
         "Current Stedi response integration stores raw 277 and 835 as DocumentReference",
         "Normalized adjudication ClaimResponse and PaymentReconciliation are not auto-created",
+        "Evidence, tasks, and payments are linked only via exact claim/encounter references; no patient-wide fallback across multiple claims",
         "No silent fallback to local fixtures",
         "Connected writes are out of scope in this demo",
         "Connected projections are built only from Bundle resources",

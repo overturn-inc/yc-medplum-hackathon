@@ -4,11 +4,26 @@
 
 | 레이어 | 책임 | 책임이 아닌 것 |
 |---|---|---|
-| Web PMS | Practice dashboard, queue, claim workbench, approval과 artifact review | Secret 보관, payer source of truth |
-| Overturn domain | Source observation 정규화, discrepancy 판정, claim episode, human approval policy | 범용 agent runtime |
-| Breakfast Factory | Agent thread, run, event stream, model execution | 의료 데이터 source of truth |
-| Medplum | FHIR R4 resource, Task workflow, evidence reference, Provenance, access control | Payer portal 자동화, 범용 claim resolution reasoning |
-| Stedi | 837P transport, 277CA, 835 ERA transport | PMS, denial resolution, 실제 portal claim-status 자동 조회 |
+| Web PMS | Practice dashboard, queue, claim workbench, conversational agent UI, approval | Secret 보관, payer source of truth |
+| Overturn domain | Source observation 정규화, discrepancy 판정, claim episode, human approval policy, verified-paid | 범용 agent runtime |
+| Session repository | Cookie-scoped snapshot, append-only events, conversations, action reservations (memory / SQLite / D1) | Cross-session shared ledger |
+| Breakfast Factory | Agent thread, run, event stream, model execution | 의료 데이터 source of truth, payer mutation proof |
+| Medplum | FHIR R4 resource, Task workflow, evidence reference, Provenance, access control | Payer portal 자동화 |
+| Stedi | 837P transport, 277CA, 835 ERA transport (connected path limitations explicit) | PMS, denial resolution |
+
+## Session isolation
+
+Anonymous browser sessions receive an opaque `hv_demo_session` HttpOnly cookie.
+Each session has its own event ledger and snapshot. Reset restores only that
+session. Local verify uses in-memory or SQLite repositories. Sites durable path
+uses D1 via `.openai/hosting.json` binding `DB`.
+
+## Conversational agent boundary
+
+Questions never mutate healthcare state. An action request (`do it`, submit,
+refresh, send docs) creates only a deterministic server-built proposal. Allow
+once / Deny remains the sole write path with exact scope, stale-revision
+conflict, and idempotent retries.
 
 ## FHIR graph
 
@@ -27,6 +42,7 @@ flowchart LR
   Claim --> Raw277["DocumentReference: raw 277"]
   Claim --> Raw835["DocumentReference: raw 835"]
   Claim --> PortalSnapshot["DocumentReference: portal observation"]
+  Claim --> PostingReceipt["DocumentReference: PMS posting receipt"]
   Raw277 --> NormalizedResponse["ClaimResponse: normalized payer response"]
   Raw835 --> NormalizedResponse
   Raw835 --> Reconciliation["PaymentReconciliation"]
@@ -38,7 +54,12 @@ flowchart LR
   ExceptionTask --> Provenance
   Raw277 --> Provenance
   Raw835 --> Provenance
+  PostingReceipt --> Provenance
 ```
+
+Verified paid requires independent Raw835/ERA evidence AND independent PMS
+posting DocumentReference with exact claim/control and amount agreement.
+PaymentReconciliation alone never proves posting.
 
 ## Resource 역할
 

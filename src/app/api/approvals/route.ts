@@ -1,14 +1,22 @@
 import { NextResponse } from "next/server";
 import { sanitizeBffError } from "@/adapters/agent/bff";
+import type { ProposableActionType } from "@/domain/proposals";
 import { getDemoRuntime } from "@/server/demo";
+import { storeFromRequest } from "@/server/request-store";
 import { StoreDegradedError } from "@/server/store";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const { repo, setCookie } = await storeFromRequest(request);
+  const withCookie = (response: NextResponse) => {
+    if (setCookie) response.headers.append("Set-Cookie", setCookie);
+    return response;
+  };
+
   const body = (await request.json()) as {
     episodeId?: string;
-    actionType?: "submit_claim" | "request_reprocessing";
+    actionType?: ProposableActionType;
     decision?: "allow_once" | "deny";
     proposalId?: string;
     payloadDigest?: string;
@@ -17,13 +25,15 @@ export async function POST(request: Request) {
   };
 
   if (!body.episodeId || !body.actionType || !body.decision) {
-    return NextResponse.json(
-      { error: "episodeId, actionType, and decision are required" },
-      { status: 400 },
+    return withCookie(
+      NextResponse.json(
+        { error: "episodeId, actionType, and decision are required" },
+        { status: 400 },
+      ),
     );
   }
 
-  const runtime = getDemoRuntime();
+  const runtime = await getDemoRuntime(repo);
 
   if (runtime.config.agentMode === "bff") {
     const probe = runtime.agent.probe
@@ -33,12 +43,14 @@ export async function POST(request: Request) {
       const sanitized = sanitizeBffError(
         new Error(probe.error ?? "BFF unavailable"),
       );
-      return NextResponse.json(
-        {
-          error: `${sanitized.message}. Approved action was not executed. No synthetic fallback.`,
-          agentMode: "bff",
-        },
-        { status: 503 },
+      return withCookie(
+        NextResponse.json(
+          {
+            error: `${sanitized.message}. Approved action was not executed. No synthetic fallback.`,
+            agentMode: "bff",
+          },
+          { status: 503 },
+        ),
       );
     }
   }
@@ -63,12 +75,14 @@ export async function POST(request: Request) {
             }
           : undefined,
     });
-    return NextResponse.json(result);
+    return withCookie(NextResponse.json(result));
   } catch (error) {
     if (error instanceof StoreDegradedError) {
-      return NextResponse.json(
-        { error: error.message, recovery: error.recovery },
-        { status: 503 },
+      return withCookie(
+        NextResponse.json(
+          { error: error.message, recovery: error.recovery },
+          { status: 503 },
+        ),
       );
     }
     const status =
@@ -76,6 +90,6 @@ export async function POST(request: Request) {
         ? Number((error as { status: number }).status)
         : 500;
     const message = error instanceof Error ? error.message : "Decision failed";
-    return NextResponse.json({ error: message }, { status });
+    return withCookie(NextResponse.json({ error: message }, { status }));
   }
 }

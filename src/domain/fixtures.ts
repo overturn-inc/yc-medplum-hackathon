@@ -29,6 +29,89 @@ function obs(
   };
 }
 
+/**
+ * Builds the R4 Claim resource for an episode's *current* claimId. When the
+ * episode carries `correctedFromClaimId` (set by
+ * `ActionService.executeCorrectAndResubmit`), the corrected claim links back
+ * to the prior claim via `Claim.related` per R4 `ClaimRelated` --
+ * `{ claim: Reference<Claim>, relationship: CodeableConcept }` -- using the
+ * `http://terminology.hl7.org/CodeSystem/ex-relatedclaimrelationship` code
+ * `prior`. Exported so `ActionService` can snapshot the *original* claim
+ * resource (by its original claimId, before the correction mutates the
+ * episode) into `episode.fhirResources` -- both claims must appear in the
+ * bundle.
+ */
+export function buildClaimResource(episode: ClaimEpisode): Resource | null {
+  if (!episode.claimId) return null;
+  return {
+    resourceType: "Claim",
+    id: episode.claimId.toLowerCase(),
+    status: "active",
+    type: {
+      coding: [
+        {
+          system: "http://terminology.hl7.org/CodeSystem/claim-type",
+          code: "professional",
+        },
+      ],
+    },
+    use: "claim",
+    patient: { reference: `Patient/${episode.patientId.replace("patient-", "")}` },
+    created: episode.lastVerifiedAt,
+    provider: { display: episode.providerName },
+    priority: {
+      coding: [
+        {
+          system: "http://terminology.hl7.org/CodeSystem/processpriority",
+          code: "normal",
+        },
+      ],
+    },
+    insurance: [
+      {
+        sequence: 1,
+        focal: true,
+        coverage: { reference: `Coverage/coverage-${episode.id}` },
+      },
+    ],
+    item: episode.serviceLines.map((line, index) => ({
+      sequence: index + 1,
+      productOrService: {
+        coding: [
+          {
+            system: "http://www.ama-assn.org/go/cpt",
+            code: line.cpt,
+            display: line.description,
+          },
+        ],
+      },
+      quantity: { value: line.units },
+      unitPrice: { value: line.charge, currency: "USD" },
+    })),
+    total: { value: episode.billedAmount, currency: "USD" },
+    ...(episode.correctedFromClaimId
+      ? {
+          related: [
+            {
+              claim: {
+                reference: `Claim/${episode.correctedFromClaimId.toLowerCase()}`,
+              },
+              relationship: {
+                coding: [
+                  {
+                    system:
+                      "http://terminology.hl7.org/CodeSystem/ex-relatedclaimrelationship",
+                    code: "prior",
+                  },
+                ],
+              },
+            },
+          ],
+        }
+      : {}),
+  } as unknown as Resource;
+}
+
 function baseEpisode(
   partial: Omit<ClaimEpisode, "discrepancies" | "proposal" | "activities" | "fhirResources"> & {
     discrepancies?: ClaimEpisode["discrepancies"];
@@ -146,13 +229,13 @@ export function createSeedEpisodes(now = DEMO_NOW): ClaimEpisode[] {
     remittanceState: "none",
     settlementState: "unknown",
     postingState: "unposted",
-    resolutionState: "monitoring",
+    resolutionState: "approval_required",
     noteState: "final",
     codingReady: true,
     coverageActive: true,
     owner: "Alex Rivera",
     issue: "Draft claim ready to submit",
-    agentAction: null,
+    agentAction: "Submit claim",
     nextFollowUpAt: null,
     lastPayerCheckAt: null,
     lastVerifiedAt: now,
@@ -224,13 +307,16 @@ export function createSeedEpisodes(now = DEMO_NOW): ClaimEpisode[] {
     remittanceState: "expected",
     settlementState: "unknown",
     postingState: "unposted",
-    resolutionState: "monitoring",
+    // Claim B is read-only w.r.t. proposals/approvals: the payer status
+    // refresh is a dedicated non-approval read-check, so this episode never
+    // enters approval_required and never carries a seed proposal.
+    resolutionState: "waiting_on_payer",
     noteState: "final",
     codingReady: true,
     coverageActive: true,
     owner: "Morgan Lee",
     issue: "Accepted; remittance overdue",
-    agentAction: "Follow up with payer",
+    agentAction: "Refresh payer status",
     nextFollowUpAt: "2026-07-05T00:00:00.000Z",
     lastPayerCheckAt: "2026-06-28T12:00:00.000Z",
     lastVerifiedAt: "2026-06-28T12:00:00.000Z",
@@ -437,7 +523,7 @@ export function createSeedEpisodes(now = DEMO_NOW): ClaimEpisode[] {
     remittanceState: "none",
     settlementState: "unknown",
     postingState: "unposted",
-    resolutionState: "waiting_on_practice",
+    resolutionState: "approval_required",
     noteState: "final",
     codingReady: true,
     coverageActive: true,
@@ -503,6 +589,9 @@ export function createSeedEpisodes(now = DEMO_NOW): ClaimEpisode[] {
     reprocessingReceiptId: null,
     remittanceControlNumber: null,
     claimControlNumber: "CN-D-4004",
+    // Stale member id on file -- the actual cause of the clearinghouse
+    // rejection. correct_and_resubmit corrects it (see deriveCorrectedMemberId).
+    memberId: "MEM-OLD-4004",
   });
 
   const claimE = baseEpisode({
@@ -524,13 +613,13 @@ export function createSeedEpisodes(now = DEMO_NOW): ClaimEpisode[] {
     remittanceState: "none",
     settlementState: "unknown",
     postingState: "unposted",
-    resolutionState: "waiting_on_practice",
+    resolutionState: "approval_required",
     noteState: "final",
     codingReady: true,
     coverageActive: true,
     owner: "Alex Rivera",
     issue: "Pended: supporting note missing",
-    agentAction: "Attach progress note",
+    agentAction: "Send requested documentation",
     nextFollowUpAt: addDays(now, 2),
     lastPayerCheckAt: "2026-07-11T10:00:00.000Z",
     lastVerifiedAt: "2026-07-11T10:00:00.000Z",
@@ -573,6 +662,15 @@ export function createSeedEpisodes(now = DEMO_NOW): ClaimEpisode[] {
         summary: "Supporting progress note requested",
         synthetic: true,
         observedAt: "2026-07-11T10:00:00.000Z",
+      },
+      {
+        id: "ev-claim-e-signed-note",
+        title: "Signed supporting progress note",
+        kind: "note",
+        reference: "DocumentReference/doc-note-claim-e",
+        summary: "Signed progress note ready to send for payer documentation request",
+        synthetic: true,
+        observedAt: "2026-07-10T16:00:00.000Z",
       },
     ],
     financial: {
@@ -674,7 +772,7 @@ export function createSeedEpisodes(now = DEMO_NOW): ClaimEpisode[] {
         "Posted and reconciled",
         "reconciled",
         "2026-07-12T15:00:00.000Z",
-        "PaymentReconciliation/payrec-claim-f",
+        "DocumentReference/doc-posting-claim-f",
         5,
       ),
     ],
@@ -696,6 +794,15 @@ export function createSeedEpisodes(now = DEMO_NOW): ClaimEpisode[] {
         summary: "Best-effort ERA PDF copy",
         synthetic: true,
         observedAt: "2026-07-11T09:05:00.000Z",
+      },
+      {
+        id: "ev-claim-f-posting",
+        title: "PMS posting receipt",
+        kind: "pms_posting",
+        reference: "DocumentReference/doc-posting-claim-f",
+        summary: "PMS posted $152.00 against control number CN-F-6006, independent of the ERA",
+        synthetic: true,
+        observedAt: "2026-07-12T15:00:00.000Z",
       },
     ],
     financial: {
@@ -843,53 +950,8 @@ export function buildFhirBundle(episodes = createSeedEpisodes()): Bundle {
     }
 
     if (episode.claimId) {
-      resources.push({
-        resourceType: "Claim",
-        id: episode.claimId.toLowerCase(),
-        status: "active",
-        type: {
-          coding: [
-            {
-              system: "http://terminology.hl7.org/CodeSystem/claim-type",
-              code: "professional",
-            },
-          ],
-        },
-        use: "claim",
-        patient: { reference: `Patient/${episode.patientId.replace("patient-", "")}` },
-        created: episode.lastVerifiedAt,
-        provider: { display: episode.providerName },
-        priority: {
-          coding: [
-            {
-              system: "http://terminology.hl7.org/CodeSystem/processpriority",
-              code: "normal",
-            },
-          ],
-        },
-        insurance: [
-          {
-            sequence: 1,
-            focal: true,
-            coverage: { reference: `Coverage/coverage-${episode.id}` },
-          },
-        ],
-        item: episode.serviceLines.map((line, index) => ({
-          sequence: index + 1,
-          productOrService: {
-            coding: [
-              {
-                system: "http://www.ama-assn.org/go/cpt",
-                code: line.cpt,
-                display: line.description,
-              },
-            ],
-          },
-          quantity: { value: line.units },
-          unitPrice: { value: line.charge, currency: "USD" },
-        })),
-        total: { value: episode.billedAmount, currency: "USD" },
-      });
+      const claimResource = buildClaimResource(episode);
+      if (claimResource) resources.push(claimResource);
 
       if (episode.submissionReceiptId) {
         resources.push({
@@ -939,7 +1001,8 @@ export function buildFhirBundle(episodes = createSeedEpisodes()): Bundle {
         evidence.kind === "authorization" ||
         evidence.kind === "era_pdf" ||
         evidence.kind === "artifact" ||
-        evidence.kind === "note"
+        evidence.kind === "note" ||
+        evidence.kind === "pms_posting"
       ) {
         const id = evidence.reference.includes("/")
           ? evidence.reference.split("/").at(-1)!
@@ -959,6 +1022,9 @@ export function buildFhirBundle(episodes = createSeedEpisodes()): Bundle {
           date: evidence.observedAt,
           context: {
             encounter: [{ reference: `Encounter/encounter-${episode.id}` }],
+            related: episode.claimId
+              ? [{ reference: `Claim/${episode.claimId.toLowerCase()}` }]
+              : undefined,
           },
           content: [
             {
@@ -980,6 +1046,8 @@ export function buildFhirBundle(episodes = createSeedEpisodes()): Bundle {
     }
 
     if (episode.fixtureKey === "claim-f") {
+      // PaymentReconciliation supports remittance linkage only; it is never
+      // accepted as PMS posting evidence (see src/domain/verified-paid.ts).
       resources.push({
         resourceType: "PaymentReconciliation",
         id: "payrec-claim-f",
@@ -987,6 +1055,9 @@ export function buildFhirBundle(episodes = createSeedEpisodes()): Bundle {
         created: "2026-07-12T15:00:00.000Z",
         paymentDate: "2026-07-11",
         paymentAmount: { value: 152, currency: "USD" },
+        paymentIdentifier: episode.claimControlNumber
+          ? { value: episode.claimControlNumber }
+          : undefined,
         detail: [
           {
             type: {
@@ -998,8 +1069,10 @@ export function buildFhirBundle(episodes = createSeedEpisodes()): Bundle {
               ],
             },
             request: { reference: `Claim/${episode.claimId!.toLowerCase()}` },
+            response: episode.submissionReceiptId
+              ? { reference: `ClaimResponse/${episode.submissionReceiptId.toLowerCase()}` }
+              : undefined,
             amount: { value: 152, currency: "USD" },
-            identifier: { value: episode.claimControlNumber ?? undefined },
           },
         ],
       });

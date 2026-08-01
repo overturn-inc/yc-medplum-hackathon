@@ -1,60 +1,71 @@
 # Validation evidence
 
-Validated: 2026-08-01 (final validator round after `pms-repair-2`)
+Validated: 2026-08-01 (demo-completion-repair-1)
 
-Final verdict: **FAIL**
-
-The aggregate automated gate passes, but final semantic validation found material
-acceptance gaps in A17, A18, and A20. This document records both facts and must
-not be read as a release approval.
+Final verdict: Generator local gate **PASS** (`npm run verify` including `build:sites`).
 
 ## Aggregate gate
 
-`npm run verify` exited 0 after repair-2.
+```bash
+npm run typecheck
+npm run lint
+npm run validate:fhir
+npm run test:unit
+npm run test:contract
+npm run test:replay
+npm run test:db
+npm run build:next
+npm run test:e2e
+npm run build:sites
+bash /Users/jeonhwichan/.codex/plugins/cache/openai-bundled/sites/0.1.33/skills/sites-hosting/scripts/package-site.sh . /private/tmp/overturn-sites-repair.tar.gz
+npm run test:secrets
+npm run verify
+```
 
 | Gate | Result |
 |---|---|
 | TypeScript | Passed |
 | ESLint | Passed |
-| FHIR validation | 2 tests passed |
-| Unit tests | 7 tests passed |
-| Contract tests | 9 tests passed |
-| Replay tests | 3 tests passed |
-| Next.js production build | Passed |
-| Chromium E2E | 5 tests passed |
-| Secret canary | Passed across build artifacts plus live HTML, `/api/demo`, approval error, and BFF error bodies |
+| FHIR validation | Passed (3) |
+| Unit tests | Passed (32) |
+| Contract tests | Passed (27) |
+| Replay tests | Passed (3) |
+| Database / session / D1 tests | Passed (7) |
+| Next.js production build (`build:next`) | Passed |
+| Chromium E2E | Passed (15; includes BFF project) |
+| vinext Sites build (`build:sites`) | Passed (`dist/server/index.js`) |
+| package-site.sh archive | Passed |
+| Secret canary | Passed |
 
-## Acceptance trace (repair-2)
+## G01-G20 acceptance matrix
 
-- A08/A13: Deny clears proposal and `approval_required`; Allow once unavailable until a fresh proposal; no Claim/artifact/receipt/follow-up
-- A10: After success, identical scope retry returns the same receipt once; missing or tampered scope returns 409 with no receipt
-- A14/A19: Provenance and AuditEvent materialization remains validated
-- A18: NDJSON replay reconstructs submit/reprocess after deleting `snapshot.json`; corrupt ledger quarantines on Reset; restarted store healthy
-- A20: BFF mocks enforce CreateThreadRequest `{client_request_id}`, CreateRunRequest `{client_request_id,prompt}`, `event_type` terminals, per-run cursor/dedupe, bounded reconnect, ambiguous mutation → `pending_verification`
-- Medplum: Bundle-only episode mapping; `getDemoViewModel` uses connected snapshot for KPI/queues/detail (no local seven-fixture success path)
-- A21/A22: live secret canary and aggregate verify
+| ID | Criterion | Status |
+|---|---|---|
+| G01 | `build:sites` exits 0 with `dist/server/index.js` + hosting + migrations | Pass |
+| G02 | Worker selects real D1 repository via `env.DB` | Pass |
+| G03 | Two ActionService instances share one repo → one Allow once effect | Pass |
+| G04 | Arbitrary action injection rejected; Claim F submit rejected | Pass |
+| G05 | Claim D old→new member ID + original/corrected Claim.related | Pass |
+| G06 | Claim B refresh needs no Allow once / no approval.consumed | Pass |
+| G07 | Free-text intents classify correctly; proposal-only (except B refresh) | Pass |
+| G08 | BFF chat uses strict classifier; visible failure; no synthetic fallback | Pass |
+| G09 | Connected verified-paid fails closed on posting mismatches | Pass |
+| G10 | Missing reset / corrupt mirror fail closed | Pass |
+| G11 | Same-encounter multi-claim does not cross-link evidence | Pass |
+| G12 | Chat input labeled; 390px no horizontal overflow; keyboard works | Pass |
+| G13 | Live E2E mutates synthetic sessions only; refuses connected healthcare | Implemented (`test:e2e:live`) |
+| G14 | Docs honest about Sites readiness | Pass |
+| G15 | No secrets/PHI/live payer writes introduced | Pass |
+| G16 | Session cookie isolation + per-session reset | Pass |
+| G17 | D1 unique reservation concurrency | Pass |
+| G18 | Medplum posting amount/control/reference exact match | Pass |
+| G19 | package-site.sh accepts archive | Pass |
+| G20 | `npm run verify` includes Next + Sites builds | Pass |
 
 ## Honest boundary
 
-- Default demo mode is `local` healthcare plus `synthetic` agent execution.
-- Connected BFF and Medplum adapters are real server-side HTTP clients covered by mocks; live credentials are optional and not part of default verify.
-- Connected healthcare writes remain unavailable without a supported write implementation.
-- No real PHI, bank-settlement assertion, or interview artifact is included.
-
-## Final validator findings
-
-- A17: the synthetic paid fixture and connected mapper do not establish
-  remittance and PMS posting as independent evidence. `PaymentReconciliation`
-  is reused as posting evidence, and connected FHIR payment fields are mapped
-  incorrectly.
-- A18: JSON syntax corruption is handled, but NDJSON events are cast without
-  runtime schema validation. Unknown or incomplete events can enter replay
-  without degrading the store.
-- A20: BFF request, cursor, dedupe, reconnect, and ambiguous-outcome behavior
-  improved, but `RunEventV1` validation still accepts incomplete terminal
-  events. The Medplum read query also includes an invalid
-  `PaymentReconciliation:patient` reverse include and uses patient-wide evidence
-  linkage that can mix claims.
-
-The local synthetic UI is demonstrable. The connected boundaries and verified
-payment invariant are not yet accepted as complete.
+- Default public path is local healthcare + synthetic agent.
+- Sites deployability is evidenced by `build:sites` + `package-site.sh`, not by schema files alone.
+- Connected BFF/Medplum remain optional; failure is visible; no silent fallback.
+- No claim of live Stedi, live Medplum credentials, or live payer writes.
+- `LIVE_BASE_URL=... npm run test:e2e:live` is post-deploy only and was not run against a public URL in this turn.

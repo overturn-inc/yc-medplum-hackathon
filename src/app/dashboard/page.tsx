@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getDemoViewModel } from "@/server/demo";
+import { storeFromCookies } from "@/server/request-store";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,8 @@ const OVERLAY_LABELS: Record<string, string> = {
 };
 
 export default async function DashboardPage() {
-  const model = await getDemoViewModel();
+  const store = await storeFromCookies();
+  const model = await getDemoViewModel(store);
   if (!model.ok) return null;
 
   const { kpi, queues } = model;

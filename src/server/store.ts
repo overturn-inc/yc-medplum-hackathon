@@ -17,7 +17,13 @@ import type {
   HealthcareMode,
 } from "@/domain/types";
 import { evaluateDiscrepancies } from "@/domain/discrepancy";
-import { buildReprocessingProposal, buildSubmitProposal } from "@/domain/proposals";
+import {
+  buildCorrectAndResubmitProposal,
+  buildReprocessingProposal,
+  buildSendDocumentationProposal,
+  buildSubmitProposal,
+} from "@/domain/proposals";
+import { parseDomainEvent } from "@/domain/schemas";
 
 export interface StoreOptions {
   dataDir?: string;
@@ -55,13 +61,19 @@ function ensureDir(dataDir: string): void {
 }
 
 /**
- * Recompute discrepancies and seed proposals only when still approval_required.
- * Denied / submitted / investigating episodes must not regain a proposal.
+ * Recompute discrepancies and seed proposals for episodes that have not
+ * already acted on that proposal type (tracked via receipt/correction
+ * fields). Denied / submitted / investigating episodes must not regain a
+ * proposal they already resolved.
+ *
+ * Exported so `@/server/repository` (in-memory session store) can reuse the
+ * exact same rehydration rules instead of duplicating them.
  */
-function rehydrateEpisode(episode: ClaimEpisode): ClaimEpisode {
+export function rehydrateEpisode(episode: ClaimEpisode): ClaimEpisode {
   const next: ClaimEpisode = {
     ...episode,
     fhirResources: episode.fhirResources ?? [],
+    conversation: episode.conversation ?? [],
   };
   next.discrepancies = evaluateDiscrepancies(next);
 
@@ -69,11 +81,17 @@ function rehydrateEpisode(episode: ClaimEpisode): ClaimEpisode {
     return next;
   }
 
+  // After Deny / successful execution, resolution leaves approval_required.
+  // Never recreate a proposal unless the episode is still awaiting approval.
   if (next.resolutionState !== "approval_required") {
     return next;
   }
 
-  if (next.fixtureKey === "encounter-a" && !next.submissionReceiptId) {
+  if (
+    (next.fixtureKey === "encounter-a" || next.fixtureKey === "claim-a") &&
+    !next.submissionReceiptId &&
+    next.transportState === "unsent"
+  ) {
     next.proposal = buildSubmitProposal(next);
   } else if (
     next.fixtureKey === "claim-c" &&
@@ -81,6 +99,18 @@ function rehydrateEpisode(episode: ClaimEpisode): ClaimEpisode {
     next.adjudicationState === "denied"
   ) {
     next.proposal = buildReprocessingProposal(next);
+  } else if (
+    next.fixtureKey === "claim-d" &&
+    !next.correctedFromClaimId &&
+    next.transportState === "clearinghouse_rejected"
+  ) {
+    next.proposal = buildCorrectAndResubmitProposal(next);
+  } else if (
+    next.fixtureKey === "claim-e" &&
+    !next.documentationReceiptId &&
+    next.adjudicationState === "info_requested"
+  ) {
+    next.proposal = buildSendDocumentationProposal(next);
   }
   return next;
 }
@@ -108,11 +138,20 @@ export function createInitialSnapshot(options: StoreOptions = {}): DemoSnapshot 
 function parseNdjson(text: string): DomainEvent[] {
   const lines = text.split("\n").filter((line) => line.trim().length > 0);
   return lines.map((line, index) => {
+    let raw: unknown;
     try {
-      return JSON.parse(line) as DomainEvent;
+      raw = JSON.parse(line);
     } catch {
       throw new StoreDegradedError(
         `Corrupt NDJSON event at line ${index + 1}`,
+        "Use Reset demo to quarantine the corrupt ledger and restore the synthetic seed projection.",
+      );
+    }
+    try {
+      return parseDomainEvent(raw);
+    } catch {
+      throw new StoreDegradedError(
+        `Invalid domain event at line ${index + 1}: failed schema validation`,
         "Use Reset demo to quarantine the corrupt ledger and restore the synthetic seed projection.",
       );
     }
@@ -125,11 +164,24 @@ export function replayEvents(
   options: StoreOptions,
 ): DemoSnapshot {
   let start = 0;
+  let foundReset = false;
   for (let i = events.length - 1; i >= 0; i -= 1) {
     if (events[i]?.type === "demo.session.reset") {
       start = i;
+      foundReset = true;
       break;
     }
+  }
+  // Fail closed: a ledger with events but no demo.session.reset boundary
+  // anywhere has no verifiable active-segment start. Every healthy ledger
+  // (seeded or reset) always begins its active segment with exactly this
+  // event type -- its absence means the ledger was truncated, tampered
+  // with, or otherwise corrupted, so replay must not proceed.
+  if (!foundReset) {
+    throw new StoreDegradedError(
+      "Event ledger has no demo.session.reset boundary; the active segment start cannot be verified",
+      "Use Reset demo to quarantine the corrupt ledger and restore the synthetic seed projection.",
+    );
   }
 
   let snapshot: DemoSnapshot | null = null;
@@ -193,6 +245,15 @@ export function applyEvent(
 
 export class LocalEventStore {
   readonly dataDir: string;
+  /**
+   * `LocalEventStore` predates session-cookie isolation (it is a single
+   * file-backed ledger, historically process-global). It structurally
+   * satisfies `@/server/repository`'s `SessionRepository` interface (which
+   * requires `sessionId`) by exposing its `dataDir` as an opaque id -- this
+   * keeps existing tests that construct `new LocalEventStore({dataDir})`
+   * directly working unchanged.
+   */
+  readonly sessionId: string;
   private healthcareMode: HealthcareMode;
   private agentMode: AgentMode;
   private snapshot: DemoSnapshot;
@@ -202,9 +263,12 @@ export class LocalEventStore {
   private degraded: { reason: string; recovery: string } | null = null;
   private mutating = false;
   private ledgerUnreadable = false;
+  /** Store-instance mutation lock tail; see `withMutationLock`. */
+  private mutationLockTail: Promise<unknown> = Promise.resolve();
 
   constructor(options: StoreOptions = {}) {
     this.dataDir = options.dataDir ?? defaultDataDir();
+    this.sessionId = this.dataDir;
     this.healthcareMode =
       options.healthcareMode ??
       ((process.env.HEALTHCARE_MODE as HealthcareMode) || "local");
@@ -305,9 +369,13 @@ export class LocalEventStore {
           ? error.recovery
           : "Use Reset demo to quarantine the corrupt ledger and restore the synthetic seed projection.";
       this.degraded = { reason, recovery };
-      this.ledgerUnreadable =
-        error instanceof StoreDegradedError &&
-        error.message.startsWith("Corrupt NDJSON");
+      // Fail closed on every degraded condition raised while loading the
+      // ledger (corrupt JSON, schema-invalid events, missing reset
+      // boundary, or any other unexpected read failure): all of these mean
+      // the on-disk ledger cannot be trusted, so `reset()` must quarantine
+      // it rather than append a boundary onto a ledger it could not itself
+      // read.
+      this.ledgerUnreadable = true;
       const degradedSnap = createInitialSnapshot({
         healthcareMode: this.healthcareMode,
         agentMode: this.agentMode,
@@ -462,6 +530,16 @@ export class LocalEventStore {
     return this.executionIndex.get(idempotencyKey);
   }
 
+  /** Serializes every beginMutation -> commit/abortMutation section on this store instance. */
+  withMutationLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.mutationLockTail.then(fn, fn);
+    this.mutationLockTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   findApprovalConsumed(input: {
     episodeId: string;
     actionType: string;
@@ -571,18 +649,9 @@ export class LocalEventStore {
   }
 }
 
-let singleton: LocalEventStore | null = null;
-
-export function getStore(options?: StoreOptions): LocalEventStore {
-  if (options?.dataDir) {
-    return new LocalEventStore(options);
-  }
-  if (!singleton) {
-    singleton = new LocalEventStore(options);
-  }
-  return singleton;
-}
-
-export function resetStoreSingleton(): void {
-  singleton = null;
-}
+/**
+ * Session-scoped access now lives in `@/server/repository#getSessionStore`,
+ * which keys a process-global registry by session id (not a single shared
+ * ledger). `LocalEventStore` itself remains a plain, directly-constructible
+ * file-backed store for tests and for the optional local durability mirror.
+ */

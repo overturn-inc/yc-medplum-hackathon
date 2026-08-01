@@ -56,7 +56,10 @@ export function runPreflight(episode: ClaimEpisode): PreflightCheck[] {
     {
       id: "charge",
       label: "Charge",
-      passed: episode.chargeState === "ready" && episode.billedAmount > 0,
+      passed:
+        (episode.chargeState === "ready" ||
+          episode.chargeState === "claim_created") &&
+        episode.billedAmount > 0,
       detail: `Charge state: ${episode.chargeState}, billed $${episode.billedAmount.toFixed(2)}`,
     },
   ];
