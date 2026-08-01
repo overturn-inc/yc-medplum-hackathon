@@ -912,6 +912,14 @@ tbody tr:last-child td {
   cursor: pointer;
 }
 
+/* Route transitions can reveal this client table before React binds the row
+   handlers. Holding pointer input for that brief hydration window prevents a
+   user's first click from being silently lost. */
+.claims-queue[data-hydrated="false"] .clickable-row {
+  pointer-events: none;
+  cursor: wait;
+}
+
 .clickable-row:hover td,
 .selected-row td {
   background: #f2f7f5;

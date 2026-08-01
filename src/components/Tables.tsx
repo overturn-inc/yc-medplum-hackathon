@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, useSyncExternalStore } from "react";
+
+const subscribeToHydration = () => () => {};
 
 type FilterOption = { id: string; label: string };
 
@@ -134,6 +136,15 @@ export function ClaimsTable({ rows, initialFilter = "all" }: { rows: ClaimRow[];
   const router = useRouter();
   const [filter, setFilter] = useState(initialFilter);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // A client component inserted by a route transition can be visible for a
+  // moment before its event handlers are attached. Keep handler-only rows
+  // inert during that window so a fast click is queued by the browser instead
+  // of disappearing.
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
   const allOptions = useMemo<FilterOption[]>(
     () => [
       ...PRIMARY_FILTERS,
@@ -165,7 +176,11 @@ export function ClaimsTable({ rows, initialFilter = "all" }: { rows: ClaimRow[];
   }
 
   return (
-    <div className="stack claims-queue">
+    <div
+      className="stack claims-queue"
+      data-hydrated={hydrated ? "true" : "false"}
+      aria-busy={hydrated ? undefined : "true"}
+    >
       <section className="filter-surface">
         <FilterChips label="Primary claim filters" options={PRIMARY_FILTERS} value={filter} onChange={changeFilter} counts={counts} />
       </section>

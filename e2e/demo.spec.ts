@@ -306,6 +306,20 @@ test.describe("Harborview PMS demo journeys", () => {
     );
   });
 
+  test("an immediate claim-row click after client navigation is not lost", async ({
+    page,
+  }) => {
+    await page.goto("/dashboard");
+    await page.getByRole("link", { name: "Claims" }).click();
+    await expect(page.getByRole("heading", { name: "Claims", exact: true })).toBeVisible();
+
+    // Do not add an artificial wait here. This specifically covers the route
+    // transition window where the server-rendered row can precede its handler.
+    await page.getByRole("row", { name: /Open Dana Okonkwo claim workbench/i }).click();
+    await expect(page.getByTestId("claim-detail-page")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Dana Okonkwo", exact: true })).toBeVisible();
+  });
+
   test("two browser contexts stay session-isolated", async ({ browser }) => {
     const first = await browser.newContext();
     const second = await browser.newContext();
