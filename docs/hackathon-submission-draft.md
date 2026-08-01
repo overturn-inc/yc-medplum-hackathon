@@ -3,6 +3,19 @@
 Official event and form rechecked on 2026-08-01. Submissions close at 5:00pm PT
 and the form allows one submission per team.
 
+## Judging criteria — product decision source of truth
+
+1. **Potential impact:** The hack should meaningfully improve patient care,
+   clinician experience, or quality of care. It should be intelligent,
+   standards-compliant, automated, and optionally voice-enabled while reducing
+   clinician and practice-staff workload rather than adding to it.
+2. **Effective use of provided technologies:** Judges evaluate how well the hack
+   uses Deepgram, Medplum, moss.dev, and/or Stedi.
+
+Decision rule: a sponsor technology counts only when it performs a visible,
+necessary job in the end-to-end claim workflow. Do not add logo-only integrations
+or claim a live connection that the demo does not execute.
+
 ## One-liner
 
 Overturn is an agent-native PMS workbench that detects multi-source claim
@@ -30,11 +43,22 @@ evidence-backed workspace with approval-gated actions.
   adapter reads claim-scoped resources and fails closed when credentials or
   evidence are missing. The public demo uses synthetic FHIR fixtures because no
   live Medplum project credentials are configured.
-- **Stedi:** The demo models the 837P submission, 277 status, and 835 remittance
-  boundaries with synthetic documents and receipts. It does not claim a live
-  Stedi payer transaction or a custom test-mode denial.
-- **Deepgram:** Not used.
-- **Moss.dev:** Not used.
+- **Stedi:** The local demo executes a real Stedi 270/271 eligibility API call
+  with Stedi's approved synthetic Jane Doe record, surfaces the live test-mode
+  result in claim preflight, and keeps the API key server-only. The 837P, 277CA,
+  and 835 claim rail is implemented at the client boundary but cannot execute
+  with the current Sandbox account, which authorizes eligibility only.
+- **Deepgram:** A real Twilio phone call through the Deepgram Voice Agent API has
+  been validated locally with synthetic Claim C context. It uses Deepgram Flux
+  speech recognition and Aura-2 speech synthesis, but is not yet connected to
+  the public product workflow or Medplum audit trail.
+- **Moss.dev:** The product creates a dedicated 39-document synthetic claims
+  index and performs real claim-scoped semantic retrieval inside the agent
+  station. Claim C visibly shows the retrieved denial, authorization, 277, and
+  reconciliation sources with similarity scores and latency. The same retrieval
+  boundary is designed for the phone agent: only metadata-matched documents for
+  the current episode survive the server-side scope guard. A live SDK validation
+  loaded the cloud index and completed warm local in-memory search in 7.8ms.
 
 The public demo also uses the live Breakfast Factory agent backbone through its
 AWS acceptance environment for conversational intent classification. Grounding,
@@ -50,18 +74,20 @@ server-owned so a model completion cannot be mistaken for a payer write.
 ## What judges see
 
 1. Synthetic practice dashboard with seven encounter/claim episodes and always-on
-   synthetic / no-live-write badges.
-2. Conversational agent station per claim: status, reason, evidence, next action,
+   synthetic / no-live-payer-write badges.
+2. Encounter preflight with a live Stedi 270/271 test eligibility result for the
+   approved synthetic Jane Doe record.
+3. Conversational agent station per claim: status, reason, evidence, next action,
    and proposal-only action requests.
-3. Encounter A / Claim A approval-gated submission ending at clearinghouse
+4. Encounter A / Claim A approval-gated submission ending at clearinghouse
    received with adjudication not found.
-4. Claim B overdue payer status refresh (read-only; never marks paid).
-5. Claim C PMS-versus-payer authorization discrepancy with Deny, Re-propose, and
-   Allow once reprocessing evidence.
-6. Claim D clearinghouse rejection corrected resubmission that preserves the
+5. Claim B overdue payer status refresh (read-only; never marks paid).
+6. Claim C PMS-versus-payer authorization discrepancy with Deny, Re-propose, and
+   Allow once reprocessing evidence, plus live Moss matches and latency.
+7. Claim D clearinghouse rejection corrected resubmission that preserves the
    original claim and updates queues.
-7. Claim E send of an existing signed supporting note after approval.
-8. Claim F verified paid only when independent remittance and PMS posting
+8. Claim E send of an existing signed supporting note after approval.
+9. Claim F verified paid only when independent remittance and PMS posting
    evidence agree on claim/control and amounts.
 
 ## Honest boundaries
@@ -72,8 +98,10 @@ server-owned so a model completion cannot be mistaken for a payer write.
   credentials are claimed.
 - BFF `run_completed` proves model completion only, never payer mutation success.
 - Domain connector receipts alone prove mutation success.
-- No claim of real Stedi denial, real Medplum credentials, Deepgram, Moss, PMF,
-  or live payer writes.
+- No claim of a live Stedi 837P/277CA/835 transaction, real Medplum credentials,
+  PMF, or live payer writes. Moss retrieval is product-integrated against a
+  synthetic-only index. Deepgram is a locally validated
+  voice proof of concept until it is connected to the public workflow.
 
 ## Verification
 
@@ -90,7 +118,7 @@ deployed version passed three consecutive runs while asserting `Agent: bff`.
 1. 0:00-0:20 — Problem and dashboard: explain source fragmentation and synthetic mode.
 2. 0:20-0:55 — Encounter A: submit with Allow once, then ask the agent for current status.
 3. 0:55-1:30 — Claim D: explain clearinghouse rejection versus payer denial; correct member ID and resubmit.
-4. 1:30-2:05 — Claim C: show PMS/payer discrepancy, deny and re-propose, approve reprocessing, ask status again.
+4. 1:30-2:05 — Claim C: ask for evidence, show Moss sources/latency, then deny and re-propose, approve reprocessing, and ask status again.
 5. 2:05-2:30 — Claim B and E: approval-free read-only refresh and documentation response.
 6. 2:30-2:50 — Claim F: independent 835 and PMS posting evidence for verified paid.
 7. 2:50-3:00 — Medplum FHIR architecture, public URL, and honest synthetic boundary.
@@ -113,8 +141,10 @@ YouTube link, and YouTube view count. The code repository link is optional.
   state claim-scoped, and prevents unapproved external writes.
 - **Effective use of provided technology:** The code has a validated FHIR R4 data
   model and a fail-closed Medplum adapter, but the public release is not connected
-  to a live Medplum project. Stedi is represented only at the synthetic 837P, 277,
-  and 835 boundaries. This is the largest remaining judging weakness.
+  to a live Medplum project. Stedi now executes a real test-mode 270/271 request;
+  the claim rail remains blocked by the current Sandbox account entitlement.
+  Moss now performs real product-integrated retrieval from a dedicated synthetic
+  corpus; its Node path has been live-validated with local in-memory search.
 - **Cannot be completed autonomously:** A live Medplum connection requires a
   project plus server-side client credentials supplied by the team. A YouTube
   upload and the final form also require the team owner's account and personal

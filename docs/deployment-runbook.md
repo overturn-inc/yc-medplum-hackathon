@@ -46,9 +46,11 @@ payer, or Stedi writes on the public path.
 
 Current public release: https://overturn-agentic-claims.argentum1450.chatgpt.site
 
-Validated public release: Sites version 20 from runtime commit
-`21a949acd983084b107fe29a2e373ac6de3e3215`; the full live mutation E2E passed
-with the `Agent: bff` assertion on 2026-08-01.
+Moss integration first shipped in Sites version 21 from runtime commit
+`556a7804b90b4db0a13b98062abe47b20f164279`. It contains the Moss retrieval
+integration; public Moss mode is temporarily off because the hosted query
+endpoint returned 503. The full live mutation E2E passed on release 20 with the
+`Agent: bff` assertion on 2026-08-01, and release 21 passed public config smoke.
 
 ## Connected adapters (optional)
 
@@ -56,6 +58,12 @@ Set server-only env from `.env.example`:
 
 - `HEALTHCARE_MODE=medplum` + `MEDPLUM_*`
 - `AGENT_MODE=bff` + `BFF_*`
+- `MOSS_MODE=live` + `MOSS_PROJECT_ID`, `MOSS_PROJECT_KEY`, and `MOSS_INDEX_NAME`
+
+For Node development, `MOSS_EXECUTION=local` downloads the real Moss index once
+and performs in-memory semantic search. Sites Workers use `MOSS_EXECUTION=cloud`
+because the current Moss SDK package includes native Node binaries. Both paths
+use Moss; no non-Moss retrieval fallback is enabled.
 
 Missing or failing connected config shows an explicit degraded / chat error state.
 There is no silent fallback to synthetic chat classification. When healthcare

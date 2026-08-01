@@ -31,7 +31,12 @@ export async function POST(
 
   try {
     const runtime = await getDemoRuntime(repo);
-    const chat = createAgentChatService(repo, runtime.actions, runtime.agent);
+    const chat = createAgentChatService(
+      repo,
+      runtime.actions,
+      runtime.agent,
+      runtime.retrieval,
+    );
     const result = await chat.handleChat({
       episodeId: id,
       message: body.message,

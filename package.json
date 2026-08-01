@@ -25,12 +25,16 @@
     "verify": "npm run typecheck && npm run lint && npm run validate:fhir && npm run test:unit && npm run test:contract && npm run test:replay && npm run test:db && npm run test:public && npm run build:next && npm run test:e2e && npm run build:sites && npm run test:secrets",
     "db:generate": "drizzle-kit generate",
     "seed:medplum": "tsx scripts/seed-medplum.ts",
-    "test:medplum": "vitest run --config vitest.config.ts tests/medplum"
+    "test:medplum": "vitest run --config vitest.config.ts tests/medplum",
+    "test:stedi:live": "node --env-file=.env.local --import tsx scripts/test-stedi-live.ts",
+    "seed:moss": "MOSS_DISABLE_TELEMETRY=1 node --env-file=.env.local --import tsx scripts/seed-moss.ts",
+    "test:moss:live": "MOSS_DISABLE_TELEMETRY=1 node --env-file=.env.local --import tsx scripts/test-moss-live.ts"
   },
   "dependencies": {
     "@medplum/core": "5.1.27",
     "@medplum/definitions": "5.1.27",
     "@medplum/fhirtypes": "5.1.27",
+    "@moss-dev/moss": "^1.4.1",
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.2",
     "next": "16.2.12",

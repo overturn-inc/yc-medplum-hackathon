@@ -18,6 +18,10 @@ import type {
   DomainEvent,
 } from "@/domain/types";
 import type { AgentAdapter } from "@/adapters/agent/types";
+import type {
+  RetrievalAdapter,
+  RetrievalResult,
+} from "@/adapters/retrieval/types";
 import { sanitizeBffError } from "@/adapters/agent/bff";
 import type { ActionService } from "@/server/actions";
 import type { SessionRepository } from "@/server/repository";
@@ -36,6 +40,8 @@ export interface ChatResult {
   assistantMessage: ConversationMessage;
   proposalCreated: boolean;
   idempotent: boolean;
+  retrieval: RetrievalResult | null;
+  retrievalError?: string;
 }
 
 function messageId(kind: "user" | "assistant", episodeId: string, at: string): string {
@@ -47,6 +53,7 @@ export class AgentChatService {
     private readonly store: SessionRepository,
     private readonly actions: ActionService,
     private readonly agent: AgentAdapter | null = null,
+    private readonly retrieval: RetrievalAdapter | null = null,
   ) {}
 
   async handleChat(input: ChatInput): Promise<ChatResult> {
@@ -64,6 +71,7 @@ export class AgentChatService {
           assistantMessage: idempotent.assistantMessage,
           proposalCreated: false,
           idempotent: true,
+          retrieval: null,
         };
       }
     }
@@ -76,6 +84,23 @@ export class AgentChatService {
     // Intent + pre-action policy only. Final content/citations are rendered
     // later from the durable episode inside the chat mutation lock.
     const answer = await this.resolveAnswer(episode, text, input.clientRequestId);
+    let retrieval: RetrievalResult | null = null;
+    let retrievalError: string | undefined;
+    if (this.retrieval) {
+      try {
+        retrieval = await this.retrieval.query({
+          episodeId: episode.id,
+          query:
+            `${text}\nSynthetic claim ${episode.claimId}; payer ${episode.payerId}; ` +
+            `date of service ${episode.dateOfService}; CPT ${episode.cpt}.`,
+          topK: 4,
+        });
+      } catch {
+        // Retrieval augments grounded domain answers. It never blocks a safe
+        // read or falls back to unscoped model content when Moss is unavailable.
+        retrievalError = "Moss retrieval is temporarily unavailable";
+      }
+    }
 
     if (
       answer.intent === "request_action" &&
@@ -149,11 +174,16 @@ export class AgentChatService {
               assistantMessage: idempotent.assistantMessage,
               proposalCreated: false,
               idempotent: true,
+              retrieval: null,
             };
           }
         }
 
         const grounded = answerChatWithIntent(refreshed, answer.intent);
+        const rankedCitations = this.rankCitations(
+          grounded.citations,
+          retrieval,
+        );
         const assistantAt = getDemoClock();
         const assistantMessage: ConversationMessage = {
           id: messageId("assistant", episode.id, assistantAt),
@@ -161,7 +191,7 @@ export class AgentChatService {
           role: "assistant",
           content: `${grounded.content}${actionOutcomeSuffix}`.trim(),
           intent: answer.intent,
-          citations: grounded.citations,
+          citations: rankedCitations,
           createdAt: assistantAt,
           proposalId,
         };
@@ -210,6 +240,8 @@ export class AgentChatService {
           assistantMessage,
           proposalCreated,
           idempotent: false,
+          retrieval,
+          ...(retrievalError ? { retrievalError } : {}),
         };
       } catch (error) {
         await this.store.abortMutation();
@@ -274,12 +306,31 @@ export class AgentChatService {
     if (!assistantMessage) return null;
     return { userMessage: conversation[userIndex]!, assistantMessage };
   }
+
+  private rankCitations(
+    citations: ConversationMessage["citations"],
+    retrieval: RetrievalResult | null,
+  ): ConversationMessage["citations"] {
+    if (!retrieval?.documents.length) return citations;
+    const order = new Map(
+      retrieval.documents.map((document, index) => [document.reference, index]),
+    );
+    return citations
+      .map((citation, index) => ({ citation, index }))
+      .sort((a, b) => {
+        const aRank = order.get(a.citation.reference) ?? Number.MAX_SAFE_INTEGER;
+        const bRank = order.get(b.citation.reference) ?? Number.MAX_SAFE_INTEGER;
+        return aRank - bRank || a.index - b.index;
+      })
+      .map(({ citation }) => citation);
+  }
 }
 
 export function createAgentChatService(
   store: SessionRepository,
   actions: ActionService,
   agent: AgentAdapter | null = null,
+  retrieval: RetrievalAdapter | null = null,
 ): AgentChatService {
-  return new AgentChatService(store, actions, agent);
+  return new AgentChatService(store, actions, agent, retrieval);
 }

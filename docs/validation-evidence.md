@@ -1,15 +1,18 @@
 # Validation evidence
 
-Validated: 2026-08-01 12:03 PDT (public release)
+Validated: 2026-08-01 13:52 PDT (Moss integration and public release)
 
-Final verdict: **PASS** after the final Claude Design implementation, local aggregate
-gate, successful Sites deployment, public visual inspection, three earlier public
-mutation E2E runs, and a final full live run against release 20.
+Final verdict: **PASS** after the final Claude Design implementation, Moss live
+SDK and browser validation, local aggregate gate, successful Sites deployment,
+public inspection, three earlier public mutation E2E runs, and a final full live
+run against release 20.
 
 Public release: https://overturn-agentic-claims.argentum1450.chatgpt.site
 
-Public Sites release: version 20 from runtime commit
-`21a949acd983084b107fe29a2e373ac6de3e3215`.
+Moss integration release: Sites version 21 from runtime commit
+`556a7804b90b4db0a13b98062abe47b20f164279`. Moss code and encrypted credentials
+were deployed, but public `MOSS_MODE` is intentionally off while the hosted query
+endpoint returns 503. Release 20 remains the latest full public mutation E2E.
 
 ## Aggregate gate
 
@@ -35,7 +38,7 @@ npm run verify
 | ESLint | Passed |
 | FHIR validation | Passed (3) |
 | Unit tests | Passed (36) |
-| Contract tests | Passed (38) |
+| Contract tests | Passed (48) |
 | Replay tests | Passed (3) |
 | Database / session / D1 tests | Passed (19) |
 | Next.js production build (`build:next`) | Passed |
@@ -84,7 +87,30 @@ npm run verify
 - Sites deployability is evidenced by `build:sites` + `package-site.sh`, not by schema files alone.
 - Public BFF is live through the AWS acceptance environment and Bedrock Sonnet;
   failures remain visible and there is no silent conversational fallback.
-- No claim of live Stedi, live Medplum credentials, or live payer writes.
+- A post-release local Stedi integration passed a real test-mode 270/271 API
+  request and UI journey using Stedi's approved synthetic Jane Doe record. The
+  Stedi portal recorded the check as Active, and the response contained five
+  active benefits plus the raw 271 X12 payload.
+- The current Stedi account is Sandbox. A direct test call to the professional
+  claims endpoint returned HTTP 403 `access_denied`; the portal likewise says
+  claims are unavailable until upgrade. No 837P, 277CA, 835, production payer,
+  or real PHI claim is made.
+- No claim of live Stedi claim submission, live Medplum credentials, or live payer writes.
+- A dedicated Moss index named `overturn-claims-demo-v1` was created with 39
+  synthetic-only documents. The official SDK loaded that live index and returned
+  only Claim C documents through a metadata filter. Cold load was 1,484ms and
+  warm local semantic search was 7.8ms in the standalone proof.
+- A production Next server and manual browser journey then returned four Moss
+  documents for “What evidence supports reprocessing?”, ranked the assistant's
+  episode citations from those matches, and visibly rendered the sources,
+  scores, and 13.9ms warm retrieval latency. No proposal or write was created.
+- Moss credentials remain server-only in the ignored local environment. The
+  indexed corpus omits patient names and member IDs, and contract tests reject
+  cross-episode documents after retrieval.
+- Moss's hosted cloud query endpoint returned HTTP 503 during final validation.
+  The official SDK local in-memory path is working; public Worker activation
+  remains contingent on the hosted query service recovering or a Node retrieval
+  sidecar being deployed.
 - `LIVE_BASE_URL=https://overturn-agentic-claims.argentum1450.chatgpt.site
   LIVE_EXPECT_AGENT_MODE=bff npm run test:e2e:live` passed the final release-20
   run after three earlier full runs. The runs covered Encounter A submission, Claim B refresh, Claim C deny,
