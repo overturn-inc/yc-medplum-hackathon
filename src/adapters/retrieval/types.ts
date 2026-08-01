@@ -16,7 +16,7 @@ export interface RetrievedDocument {
 export interface RetrievalResult {
   provider: "moss";
   indexName: string;
-  execution: "cloud-semantic-search" | "local-in-memory";
+  execution: "cloud-semantic-search" | "local-in-memory" | "aws-local-sidecar";
   latencyMs: number;
   mossSearchMs: number | null;
   synthetic: true;

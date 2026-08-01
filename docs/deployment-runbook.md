@@ -46,11 +46,13 @@ payer, or Stedi writes on the public path.
 
 Current public release: https://overturn-agentic-claims.argentum1450.chatgpt.site
 
-Moss integration first shipped in Sites version 21 from runtime commit
-`556a7804b90b4db0a13b98062abe47b20f164279`. It contains the Moss retrieval
-integration; public Moss mode is temporarily off because the hosted query
-endpoint returned 503. The full live mutation E2E passed on release 20 with the
-`Agent: bff` assertion on 2026-08-01, and release 21 passed public config smoke.
+Moss integration first shipped in Sites version 21. The current release uses
+`MOSS_EXECUTION=sidecar`: the Worker calls an authenticated route on the BFF AWS
+acceptance host, where the official Node SDK loads and searches the Moss index
+locally. The Worker stores only the dedicated sidecar credential; Moss project
+credentials remain in AWS Secrets Manager. The sidecar has no host port,
+contains only synthetic evidence, and is reachable externally only through the
+TLS Caddy route.
 
 ## Connected adapters (optional)
 
@@ -58,12 +60,23 @@ Set server-only env from `.env.example`:
 
 - `HEALTHCARE_MODE=medplum` + `MEDPLUM_*`
 - `AGENT_MODE=bff` + `BFF_*`
-- `MOSS_MODE=live` + `MOSS_PROJECT_ID`, `MOSS_PROJECT_KEY`, and `MOSS_INDEX_NAME`
+- Local or direct cloud execution: `MOSS_MODE=live` + `MOSS_PROJECT_ID`,
+  `MOSS_PROJECT_KEY`, and `MOSS_INDEX_NAME`
+- Hosted sidecar execution: `MOSS_MODE=live`, `MOSS_EXECUTION=sidecar`,
+  `MOSS_INDEX_NAME`, `MOSS_SIDECAR_URL`, and `MOSS_SIDECAR_API_KEY`
 
 For Node development, `MOSS_EXECUTION=local` downloads the real Moss index once
-and performs in-memory semantic search. Sites Workers use `MOSS_EXECUTION=cloud`
-because the current Moss SDK package includes native Node binaries. Both paths
-use Moss; no non-Moss retrieval fallback is enabled.
+and performs in-memory semantic search. Sites Workers use
+`MOSS_EXECUTION=sidecar` because the current Moss SDK package includes native
+Node binaries. The sidecar performs that same local search on AWS and returns a
+small, episode-filtered result. No non-Moss retrieval fallback is enabled.
+
+The AWS sidecar image and host deployment assets live under
+`services/moss-sidecar`. The host keeps project credentials in a root-managed
+Secrets Manager file mount, model/index cache in a dedicated Docker volume, and
+the container on the existing private Compose network. A BFF host redeploy that
+replaces `/opt/bff/Caddyfile` must re-run the sidecar deploy script to restore the
+route.
 
 Missing or failing connected config shows an explicit degraded / chat error state.
 There is no silent fallback to synthetic chat classification. When healthcare

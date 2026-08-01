@@ -1,0 +1,17 @@
+{$BFF_PUBLIC_HOST} {
+    encode zstd gzip
+
+    @private_diagnostics path /diagnostics/*
+    respond @private_diagnostics 404
+
+    handle /v1/moss/query {
+        rewrite * /query
+        reverse_proxy moss-sidecar:8080
+    }
+
+    handle {
+        reverse_proxy api:8000 {
+            flush_interval -1
+        }
+    }
+}

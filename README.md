@@ -30,7 +30,7 @@ Data is synthetic. Anonymous sessions are isolated by an HttpOnly cookie.
 | Agent `synthetic` (default) | `AGENT_MODE=synthetic` | Deterministic chat, proposals, and execution |
 | Agent `bff` | `AGENT_MODE=bff` + `BFF_*` | Live BFF conversational classification; grounded answers and proposals stay server-owned; local synthetic domain connectors still produce mutation receipts |
 | Retrieval `off` (default) | `MOSS_MODE=off` | Domain-grounded chat without external semantic retrieval |
-| Retrieval `live` | `MOSS_MODE=live` + `MOSS_*` | Moss claim-scoped semantic retrieval; Node demos may use local in-memory execution and Workers use Moss cloud search |
+| Retrieval `live` | `MOSS_MODE=live` + `MOSS_*` | Moss claim-scoped semantic retrieval; Node demos use local in-memory execution and hosted Workers call the authenticated AWS local-search sidecar |
 
 In public Sites `AGENT_MODE=bff` with healthcare `local`, Breakfast Factory handles
 readiness and chat intent only. It never becomes the proof of a healthcare write.
@@ -115,6 +115,9 @@ npm run test:moss:live
 - BFF `run_completed` proves model completion only; domain connector receipts prove mutation success.
 - Connected BFF/Medplum adapters are mock-testable HTTP clients. Default verify never requires live credentials.
 - Moss indexes only the synthetic operational evidence corpus. Names and member IDs are omitted, results are filtered again by episode on the server, and retrieval never authorizes a write.
+- The public Worker never receives the Moss project key. It holds a separate
+  server-only sidecar credential and calls a read-only Node service on the BFF
+  AWS acceptance host; that service loads the official Moss SDK and index locally.
 - Durable Sites path: `npm run build:sites` produces `dist/server/index.js` plus
   hosting metadata and drizzle migrations. The Worker injects `env.DB` and selects
   `D1SessionRepository` at runtime. Local verify still uses Next.js plus memory/SQLite

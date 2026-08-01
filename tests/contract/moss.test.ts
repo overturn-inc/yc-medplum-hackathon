@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   MossCloudRetrievalAdapter,
   MossRetrievalError,
+  MossSidecarRetrievalAdapter,
 } from "@/adapters/retrieval/moss";
 import { buildMossDocuments } from "@/adapters/retrieval/moss-documents";
 import type { RetrievalAdapter } from "@/adapters/retrieval/types";
@@ -98,10 +99,62 @@ describe("Moss retrieval contract", () => {
     ).rejects.not.toThrow(/super-secret-key|internal secret details/);
   });
 
+  it("calls the authenticated AWS sidecar without Moss project credentials", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      response({
+        provider: "moss",
+        indexName: "claims",
+        execution: "aws-local-sidecar",
+        latencyMs: 12.5,
+        mossSearchMs: 3.1,
+        synthetic: true,
+        documents: [
+          {
+            id: "claim-c-auth",
+            title: "Authorization not required",
+            reference: "DocumentReference/doc-auth-claim-c",
+            documentType: "evidence:authorization",
+            excerpt: "Authorization is not required.",
+            score: 0.97,
+          },
+        ],
+      }),
+    );
+    const moss = new MossSidecarRetrievalAdapter({
+      endpoint: "https://bff.test/v1/moss/query",
+      apiKey: "sidecar-secret",
+      indexName: "claims",
+      fetchImpl,
+    });
+
+    const result = await moss.query({
+      episodeId: "episode-claim-c",
+      query: "authorization",
+      topK: 3,
+    });
+
+    expect(result.execution).toBe("aws-local-sidecar");
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://bff.test/v1/moss/query",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer sidecar-secret",
+        }),
+      }),
+    );
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+    expect(body).toEqual({
+      episodeId: "episode-claim-c",
+      query: "authorization",
+      topK: 3,
+    });
+  });
+
   it("requires complete server-only config in live mode", () => {
     expect(() =>
       loadServerConfig({ MOSS_MODE: "live" } as unknown as NodeJS.ProcessEnv),
-    ).toThrow(/MOSS_PROJECT_ID/);
+    ).toThrow(/MOSS_INDEX_NAME/);
     expect(
       loadServerConfig({
         MOSS_MODE: "live",
@@ -110,6 +163,18 @@ describe("Moss retrieval contract", () => {
         MOSS_INDEX_NAME: "claims",
       } as unknown as NodeJS.ProcessEnv).mossMode,
     ).toBe("live");
+  });
+
+  it("requires only endpoint credentials for sidecar execution", () => {
+    const config = loadServerConfig({
+      MOSS_MODE: "live",
+      MOSS_EXECUTION: "sidecar",
+      MOSS_INDEX_NAME: "claims",
+      MOSS_SIDECAR_URL: "https://bff.test/v1/moss/query",
+      MOSS_SIDECAR_API_KEY: "sidecar-secret",
+    } as unknown as NodeJS.ProcessEnv);
+    expect(config.mossExecution).toBe("sidecar");
+    expect(config.mossProjectKey).toBeUndefined();
   });
 
   it("builds a synthetic corpus without names or member IDs", () => {

@@ -27,6 +27,25 @@ const queryResponseSchema = z.object({
   ),
 });
 
+const sidecarResponseSchema = z.object({
+  provider: z.literal("moss"),
+  indexName: z.string().min(1),
+  execution: z.literal("aws-local-sidecar"),
+  latencyMs: z.number().nonnegative(),
+  mossSearchMs: z.number().nonnegative().nullable(),
+  synthetic: z.literal(true),
+  documents: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      reference: z.string(),
+      documentType: z.string(),
+      excerpt: z.string(),
+      score: z.number(),
+    }),
+  ),
+});
+
 export interface MossCloudConfig {
   projectId: string;
   projectKey: string;
@@ -35,6 +54,13 @@ export interface MossCloudConfig {
   queryUrl?: string;
   fetchImpl?: typeof fetch;
   preferredExecution?: "cloud" | "local";
+}
+
+export interface MossSidecarConfig {
+  endpoint: string;
+  apiKey: string;
+  indexName: string;
+  fetchImpl?: typeof fetch;
 }
 
 interface LocalMossClient {
@@ -219,6 +245,49 @@ export class MossCloudRetrievalAdapter implements RetrievalAdapter {
   }
 }
 
+export class MossSidecarRetrievalAdapter implements RetrievalAdapter {
+  readonly provider = "moss" as const;
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(private readonly config: MossSidecarConfig) {
+    this.fetchImpl = config.fetchImpl ?? fetch;
+  }
+
+  async query(input: RetrievalQuery): Promise<RetrievalResult> {
+    const response = await this.fetchImpl(this.config.endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        episodeId: input.episodeId,
+        query: input.query,
+        topK: input.topK ?? 4,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    }).catch(() => {
+      throw new MossRetrievalError("Moss sidecar retrieval is unavailable");
+    });
+
+    if (!response.ok) {
+      throw new MossRetrievalError(
+        "Moss sidecar retrieval was rejected",
+        response.status === 401 || response.status === 403 ? 503 : 502,
+      );
+    }
+
+    const parsed = sidecarResponseSchema.safeParse(
+      await response.json().catch(() => null),
+    );
+    if (!parsed.success || parsed.data.indexName !== this.config.indexName) {
+      throw new MossRetrievalError("Moss sidecar returned an invalid response", 502);
+    }
+
+    return parsed.data;
+  }
+}
+
 let cachedAdapter:
   | { signature: string; adapter: MossCloudRetrievalAdapter }
   | undefined;
@@ -233,4 +302,10 @@ export function createMossCloudRetrievalAdapter(
   const adapter = new MossCloudRetrievalAdapter(config);
   if (!config.fetchImpl) cachedAdapter = { signature, adapter };
   return adapter;
+}
+
+export function createMossSidecarRetrievalAdapter(
+  config: MossSidecarConfig,
+): MossSidecarRetrievalAdapter {
+  return new MossSidecarRetrievalAdapter(config);
 }

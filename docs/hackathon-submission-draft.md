@@ -58,7 +58,10 @@ evidence-backed workspace with approval-gated actions.
   reconciliation sources with similarity scores and latency. The same retrieval
   boundary is designed for the phone agent: only metadata-matched documents for
   the current episode survive the server-side scope guard. A live SDK validation
-  loaded the cloud index and completed warm local in-memory search in 7.8ms.
+  loaded the cloud index and completed warm local in-memory search in 7.8ms. The
+  public Worker now calls an authenticated Node sidecar on AWS, which uses the
+  official SDK for the same local search while keeping the Moss project key out
+  of the Worker and browser.
 
 The public demo also uses the live Breakfast Factory agent backbone through its
 AWS acceptance environment for conversational intent classification. Grounding,
@@ -99,8 +102,8 @@ server-owned so a model completion cannot be mistaken for a payer write.
 - BFF `run_completed` proves model completion only, never payer mutation success.
 - Domain connector receipts alone prove mutation success.
 - No claim of a live Stedi 837P/277CA/835 transaction, real Medplum credentials,
-  PMF, or live payer writes. Moss retrieval is product-integrated against a
-  synthetic-only index. Deepgram is a locally validated
+  PMF, or live payer writes. Moss retrieval is live in the public product against
+  a synthetic-only index through the authenticated AWS sidecar. Deepgram is a locally validated
   voice proof of concept until it is connected to the public workflow.
 
 ## Verification
