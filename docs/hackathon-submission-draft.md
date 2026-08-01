@@ -36,6 +36,11 @@ evidence-backed workspace with approval-gated actions.
 - **Deepgram:** Not used.
 - **Moss.dev:** Not used.
 
+The public demo also uses the live Breakfast Factory agent backbone through its
+AWS acceptance environment for conversational intent classification. Grounding,
+proposal construction, approvals, and synthetic healthcare receipts remain
+server-owned so a model completion cannot be mistaken for a payer write.
+
 ## Links
 
 - Public demo: https://overturn-agentic-claims.argentum1450.chatgpt.site
@@ -62,8 +67,9 @@ evidence-backed workspace with approval-gated actions.
 ## Honest boundaries
 
 - Default demo is fully synthetic. No real PHI.
-- Connected Medplum and Breakfast Factory BFF adapters are mock-tested HTTP
-  boundaries. Live credentials are optional and not claimed as present.
+- The public Breakfast Factory BFF adapter is live and validated against its AWS
+  acceptance environment. The Medplum adapter is mock-tested and no live Medplum
+  credentials are claimed.
 - BFF `run_completed` proves model completion only, never payer mutation success.
 - Domain connector receipts alone prove mutation success.
 - No claim of real Stedi denial, real Medplum credentials, Deepgram, Moss, PMF,
@@ -76,7 +82,8 @@ database, build, Playwright, and secret scanning.
 
 The public mutation E2E also passes submission, payer refresh, denial
 reprocessing, clearinghouse correction, documentation response, verified-paid
-safety, agent post-action status, persistence, session isolation, and reset.
+safety, agent post-action status, persistence, session isolation, and reset. The
+deployed version passed three consecutive runs while asserting `Agent: bff`.
 
 ## Suggested 3-minute video
 

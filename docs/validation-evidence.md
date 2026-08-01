@@ -6,7 +6,8 @@ Final verdict: **PASS** from a fresh independent Validator after the final repai
 
 Public release: https://overturn-agentic-claims.argentum1450.chatgpt.site
 
-Public Sites release: version 11 from commit `202d9d8`.
+Public Sites release: version 13 from runtime commit
+`706b9ba4410d8dbb41ff9920266bb17051780cdb`.
 
 ## Aggregate gate
 
@@ -32,17 +33,18 @@ npm run verify
 | ESLint | Passed |
 | FHIR validation | Passed (3) |
 | Unit tests | Passed (36) |
-| Contract tests | Passed (30) |
+| Contract tests | Passed (37) |
 | Replay tests | Passed (3) |
-| Database / session / D1 tests | Passed (18) |
+| Database / session / D1 tests | Passed (19) |
 | Next.js production build (`build:next`) | Passed |
 | Chromium E2E | Passed (15; includes BFF project) |
 | vinext Sites build (`build:sites`) | Passed (`dist/server/index.js`) |
 | package-site.sh archive | Passed |
 | Secret canary | Passed |
 | Public anonymous HTTP | Passed (200) |
-| Public mutation E2E | Passed three consecutive full runs, then one enhanced full run on version 11 |
-| Independent final Validator | Passed at `202d9d8` |
+| Public mutation E2E | Passed three consecutive full runs with required `Agent: bff` on version 13 |
+| Manual public browser journey | Passed: BFF answer, Deny, re-propose, Allow once, receipt, dashboard update |
+| Independent final Validator | Passed at runtime commit `706b9ba4410d8dbb41ff9920266bb17051780cdb` |
 
 ## G01-G21 acceptance matrix
 
@@ -76,15 +78,19 @@ npm run verify
   chat; grounded answers/proposals remain server-owned; synthetic local connectors
   still produce demo mutation receipts.
 - Sites deployability is evidenced by `build:sites` + `package-site.sh`, not by schema files alone.
-- Connected BFF/Medplum failures are visible; there is no silent conversational fallback.
+- Public BFF is live through the AWS acceptance environment and Bedrock Sonnet;
+  failures remain visible and there is no silent conversational fallback.
 - No claim of live Stedi, live Medplum credentials, or live payer writes.
-- `LIVE_BASE_URL=https://overturn-agentic-claims.argentum1450.chatgpt.site npm run test:e2e:live`
-  passed three consecutive full runs, followed by an enhanced full run that
-  explicitly asserted Claim F's unsafe-action refusal and absence of a proposal.
-  The runs also covered Encounter A submission, Claim B refresh, Claim C
-  reprocessing, Claim D correction, Claim E documentation, dashboard persistence,
-  two browser sessions, reset, and current-state answers after actions.
-  Optional `LIVE_EXPECT_AGENT_MODE=bff` asserts the dashboard Agent badge before mutations.
+- `LIVE_BASE_URL=https://overturn-agentic-claims.argentum1450.chatgpt.site
+  LIVE_EXPECT_AGENT_MODE=bff npm run test:e2e:live` passed three consecutive full
+  runs. The runs covered Encounter A submission, Claim B refresh, Claim C deny,
+  re-propose and allow, Claim D correction, Claim E documentation, Claim F's
+  unsafe-action refusal and absence of a proposal, dashboard persistence, two
+  browser sessions, reset, and current-state answers after actions.
+- A separate manual browser journey confirmed that Claim C's live BFF answer cited
+  the PMS, payer, and authorization evidence; Deny created no write; re-proposal
+  restored Allow once; approval produced a receipt; and the dashboard approval
+  count changed from 4 to 3.
 
 ## Residual non-blocking risks
 
