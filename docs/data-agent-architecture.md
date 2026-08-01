@@ -20,10 +20,12 @@ uses D1 via `.openai/hosting.json` binding `DB`.
 
 ## Conversational agent boundary
 
-Questions never mutate healthcare state. An action request (`do it`, submit,
-refresh, send docs) creates only a deterministic server-built proposal. Allow
-once / Deny remains the sole write path with exact scope, stale-revision
-conflict, and idempotent retries.
+Questions never perform healthcare writes. Submit, reprocessing, correction,
+and document-send requests create only a deterministic server-built proposal.
+Allow once / Deny remains the sole healthcare write path with exact scope,
+stale-revision conflict, and idempotent retries. Claim B is the intentional
+exception for a read-only payer status refresh: chat may run that query directly,
+append the returned observation and follow-up, and never mark the claim paid.
 
 ## FHIR graph
 

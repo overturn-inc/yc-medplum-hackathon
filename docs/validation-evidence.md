@@ -2,9 +2,11 @@
 
 Validated: 2026-08-01 (public release)
 
-Final verdict: **PASS** from a fresh independent Validator after two repair cycles.
+Final verdict: **PASS** from a fresh independent Validator after the final repair cycle.
 
 Public release: https://overturn-agentic-claims.argentum1450.chatgpt.site
+
+Public Sites release: version 11 from commit `202d9d8`.
 
 ## Aggregate gate
 
@@ -30,19 +32,19 @@ npm run verify
 | ESLint | Passed |
 | FHIR validation | Passed (3) |
 | Unit tests | Passed (36) |
-| Contract tests | Passed (27) |
+| Contract tests | Passed (30) |
 | Replay tests | Passed (3) |
-| Database / session / D1 tests | Passed (7) |
+| Database / session / D1 tests | Passed (18) |
 | Next.js production build (`build:next`) | Passed |
 | Chromium E2E | Passed (15; includes BFF project) |
 | vinext Sites build (`build:sites`) | Passed (`dist/server/index.js`) |
 | package-site.sh archive | Passed |
 | Secret canary | Passed |
 | Public anonymous HTTP | Passed (200) |
-| Public mutation E2E | Passed |
-| Independent final Validator | Passed at `5b0c58f` |
+| Public mutation E2E | Passed three consecutive full runs, then one enhanced full run on version 11 |
+| Independent final Validator | Passed at `202d9d8` |
 
-## G01-G20 acceptance matrix
+## G01-G21 acceptance matrix
 
 | ID | Criterion | Status |
 |---|---|---|
@@ -75,15 +77,16 @@ npm run verify
 - Connected BFF/Medplum remain optional; failure is visible; no silent fallback.
 - No claim of live Stedi, live Medplum credentials, or live payer writes.
 - `LIVE_BASE_URL=https://overturn-agentic-claims.argentum1450.chatgpt.site npm run test:e2e:live`
-  passed Encounter A submission, Claim B refresh, Claim C reprocessing, Claim D
-  correction, Claim E documentation, Claim F safety, dashboard persistence, two
-  browser sessions, and reset. It also asked the agent for current status after
-  actions and rejected stale pre-action answers.
+  passed three consecutive full runs, followed by an enhanced full run that
+  explicitly asserted Claim F's unsafe-action refusal and absence of a proposal.
+  The runs also covered Encounter A submission, Claim B refresh, Claim C
+  reprocessing, Claim D correction, Claim E documentation, dashboard persistence,
+  two browser sessions, reset, and current-state answers after actions.
 
 ## Residual non-blocking risks
 
-- Exact approval execution is durably reserved, but simultaneous unrelated writes
-  in the same anonymous session do not use a database-level session CAS.
+- Reset clears auxiliary D1 tables separately from appending the reset boundary;
+  a contrived simultaneous reset/action race is not fully transactional.
 - Claim B uses a frozen demo clock, so repeated refreshes can reuse logical labels.
 - Public sessions and chat history are intentionally unbounded for this short-lived
   synthetic hackathon demo.

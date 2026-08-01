@@ -45,6 +45,10 @@ credentials, no live payer writes).
 
 Current public release: https://overturn-agentic-claims.argentum1450.chatgpt.site
 
+Validated public release: Sites version 11 from commit `202d9d8`; the full live
+mutation E2E passed three consecutive runs plus one enhanced safety-assertion run
+on 2026-08-01.
+
 ## Connected adapters (optional)
 
 Set server-only env from `.env.example`:

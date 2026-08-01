@@ -81,7 +81,9 @@ npm run test:medplum
 - All patients, payers, authorizations, portal snapshots, 277/835, and messages are **synthetic** in default local mode.
 - Realistic denial, portal follow-up, and reprocessing are demo connectors — not live payer writes.
 - `Verified paid` means matching remittance **and** independent reconciled PMS posting DocumentReference. It is **not** bank settlement.
-- Chat never mutates healthcare state. Action requests only create server-built proposals.
+- Chat never performs healthcare writes. Action requests create server-built proposals,
+  except Claim B's explicit read-only payer status refresh, which appends an observation
+  without Allow once and never marks the claim paid.
 - Approval is bound to `proposalId`, `payloadDigest`, `episodeRevision`, and fingerprint.
 - BFF `run_completed` proves model completion only; domain connector receipts prove mutation success.
 - Connected BFF/Medplum adapters are mock-testable HTTP clients. Default verify never requires live credentials.

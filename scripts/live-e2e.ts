@@ -135,7 +135,12 @@ async function main() {
     timeout: 30_000,
   });
   await page.getByTestId("agent-chat-send").click();
-  await page.waitForTimeout(800);
+  await expect(page.getByTestId("agent-chat-thread")).toContainText(
+    "There is no scripted next action for this episode",
+    { timeout: 30_000 },
+  );
+  await expect(page.getByText(/No open proposal/)).toBeVisible();
+  await expect(page.getByTestId("allow-once")).toHaveCount(0);
 
   console.log("[live] Dashboard projection and refresh persistence");
   // Dashboard

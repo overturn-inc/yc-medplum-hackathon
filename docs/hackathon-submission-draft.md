@@ -1,5 +1,8 @@
 # Hackathon submission draft
 
+Official event and form rechecked on 2026-08-01. Submissions close at 5:00pm PT
+and the form allows one submission per team.
+
 ## One-liner
 
 Overturn is an agent-native PMS workbench that detects multi-source claim
@@ -91,3 +94,7 @@ safety, agent post-action status, persistence, session isolation, and reset.
 - Phone number
 - YouTube upload link and view count at submission time
 - One form submission before 5:00pm PT
+
+The official form requires email, team name, team member names and emails, phone
+number, hack name and tagline, problem statement, sponsor-technology usage,
+YouTube link, and YouTube view count. The code repository link is optional.
