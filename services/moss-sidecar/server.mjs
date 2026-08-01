@@ -90,7 +90,7 @@ async function getClient() {
   if (clientPromise) return clientPromise;
   clientPromise = (async () => {
     const client = new MossClient(config.projectId, config.projectKey, {
-      cachePath: process.env.MOSS_CACHE_PATH || "/home/node/.moss",
+      cachePath: process.env.MOSS_CACHE_PATH || "/moss-cache",
     });
     await client.loadIndex(config.indexName);
     return client;

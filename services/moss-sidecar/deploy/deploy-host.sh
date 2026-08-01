@@ -64,7 +64,7 @@ docker run -d \
   --cpus 1.0 \
   --env MOSS_SECRET_FILE=/run/secrets/moss.json \
   --mount type=bind,src=/run/moss-sidecar/secret.json,dst=/run/secrets/moss.json,readonly \
-  --mount type=volume,src=moss-sidecar-data,dst=/home/node/.moss \
+  --mount type=volume,src=moss-sidecar-data,dst=/moss-cache \
   --log-driver awslogs \
   --log-opt "awslogs-region=${AWS_REGION}" \
   --log-opt "awslogs-group=${BFF_LOG_GROUP}" \

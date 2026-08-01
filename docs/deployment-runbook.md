@@ -74,9 +74,10 @@ small, episode-filtered result. No non-Moss retrieval fallback is enabled.
 The AWS sidecar image and host deployment assets live under
 `services/moss-sidecar`. The host keeps project credentials in a root-managed
 Secrets Manager file mount, model/index cache in a dedicated Docker volume, and
-the container on the existing private Compose network. A BFF host redeploy that
-replaces `/opt/bff/Caddyfile` must re-run the sidecar deploy script to restore the
-route.
+the container on the existing private Compose network. The runtime stage uses a
+non-root Chainguard Node image; the larger Debian image is build-only and is not
+present in the deployed runtime. A BFF host redeploy that replaces
+`/opt/bff/Caddyfile` must re-run the sidecar deploy script to restore the route.
 
 Missing or failing connected config shows an explicit degraded / chat error state.
 There is no silent fallback to synthetic chat classification. When healthcare
