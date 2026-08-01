@@ -131,6 +131,9 @@ async function main() {
     .getByText("Verified paid", { exact: true })
     .waitFor({ timeout: 30_000 });
   await page.getByTestId("agent-chat-input").fill("Submit this claim for me");
+  await expect(page.getByTestId("agent-chat-send")).toBeEnabled({
+    timeout: 30_000,
+  });
   await page.getByTestId("agent-chat-send").click();
   await page.waitForTimeout(800);
 

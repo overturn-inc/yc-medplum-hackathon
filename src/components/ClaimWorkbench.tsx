@@ -199,6 +199,7 @@ export function ClaimWorkbench({
       </div>
 
       <AgentStation
+        key={episode.id}
         episode={episode}
         preflight={preflight}
         events={events}
