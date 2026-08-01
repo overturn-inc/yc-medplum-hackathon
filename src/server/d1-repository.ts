@@ -171,30 +171,33 @@ export class D1SessionRepository implements SessionRepository {
   private async appendPersisted(events: DomainEvent[]): Promise<void> {
     const statements: D1PreparedStatement[] = [];
     for (const event of events) {
-      const seq = this.nextSeq;
+      const storageId = `${this.sessionId}:${Date.now()}:${Math.random()
+        .toString(36)
+        .slice(2)}:${event.id}`;
       statements.push(
         this.db
           .prepare(
             `INSERT INTO events (id, session_id, seq, at, type, payload_json)
-             VALUES (?, ?, ?, ?, ?, ?)`,
+             SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?
+             FROM events WHERE session_id = ?`,
           )
           .bind(
             // Domain event ids are deterministic inside a demo journey and may
             // legitimately repeat in another anonymous session or after reset.
             // The storage key therefore includes both the session and append
             // sequence while payload_json preserves the domain event unchanged.
-            `${this.sessionId}:${seq}:${event.id}`,
+            storageId,
             this.sessionId,
-            seq,
             event.at,
             event.type,
             JSON.stringify(event),
+            this.sessionId,
           ),
       );
-      this.nextSeq += 1;
     }
     if (statements.length > 0) {
       await this.db.batch(statements);
+      this.nextSeq += statements.length;
     }
   }
 
@@ -301,6 +304,9 @@ export class D1SessionRepository implements SessionRepository {
 
   async getSnapshot(): Promise<DemoSnapshot> {
     await this.ensureReady();
+    if (!this.mutating && !this.degraded) {
+      this.snapshot = await this.loadOrSeed();
+    }
     if (this.degraded) {
       throw new StoreDegradedError(this.degraded.reason, this.degraded.recovery);
     }
@@ -314,6 +320,9 @@ export class D1SessionRepository implements SessionRepository {
 
   async getEpisode(id: string): Promise<ClaimEpisode | undefined> {
     await this.ensureReady();
+    if (!this.mutating && !this.degraded) {
+      this.snapshot = await this.loadOrSeed();
+    }
     if (this.degraded) {
       throw new StoreDegradedError(this.degraded.reason, this.degraded.recovery);
     }
@@ -403,7 +412,14 @@ export class D1SessionRepository implements SessionRepository {
   }
 
   withMutationLock<T>(fn: () => Promise<T>): Promise<T> {
-    const run = this.mutationLockTail.then(fn, fn);
+    const runMutation = async () => {
+      await this.ensureReady();
+      if (!this.degraded) {
+        this.snapshot = await this.loadOrSeed();
+      }
+      return fn();
+    };
+    const run = this.mutationLockTail.then(runMutation, runMutation);
     this.mutationLockTail = run.then(
       () => undefined,
       () => undefined,
@@ -443,6 +459,9 @@ export class D1SessionRepository implements SessionRepository {
 
   async reset(): Promise<DemoSnapshot> {
     await this.ensureReady();
+    if (!this.degraded) {
+      this.snapshot = await this.loadOrSeed();
+    }
     this.mutating = false;
     const nextRevision = (this.snapshot.sessionRevision || 1) + 1;
     const boundary: DomainEvent = {
