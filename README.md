@@ -58,15 +58,45 @@ ln -s ../medplum medplum-link
 ## 5-minute demo
 
 1. **Dashboard** — seven synthetic cases, synthetic/no-live-write badges, KPI and queues.
-2. **Encounter A / Claim A** — chat or approve submission; receipt appears; adjudication stays not found.
-3. **Claim B** — overdue status; refresh adds payer observation and follow-up; never paid.
-4. **Claim C** — PMS processing vs payer authorization denial; ask for evidence and show the live Moss matches, scores, latency, and ranked citations; Deny / Re-propose / Allow once.
-5. **Claim D** — clearinghouse rejection (not payer denial); correct and resubmit preserves original.
-6. **Claim E** — send existing signed supporting note after approval.
-7. **Claim F** — verified paid only with independent remittance + PMS posting.
-8. **Refresh** persists session state; **Reset demo** restores only the current session.
-9. Ask for status again after each action; the agent cites the current receipt,
-   resolution, and next follow-up instead of repeating the pre-action state.
+2. **Encounter A** — the guided hero claim (`CLM-EA-1001`): eligibility check,
+   submit, deterministic follow-through, a Northstar portal investigation and
+   Deepgram voice-session tool job, approval-gated reprocessing, a denial
+   recheck, and a formal appeal, each step backed by a durable connector
+   receipt or approval. See [Guided hero claim](#guided-hero-claim-encounter-a) below.
+3. **Claim A** — chat or approve submission; receipt appears; adjudication stays not found.
+4. **Claim B** — overdue status; refresh adds payer observation and follow-up; never paid.
+5. **Claim C** — PMS processing vs payer authorization denial; ask for evidence and show the live Moss matches, scores, latency, and ranked citations; Deny / Re-propose / Allow once.
+6. **Claim D** — clearinghouse rejection (not payer denial); correct and resubmit preserves original.
+7. **Claim E** — send existing signed supporting note after approval.
+8. **Claim F** — verified paid only with independent remittance + PMS posting.
+9. **Refresh** persists session state; **Reset demo** restores only the current session (also cancels any active tool job).
+10. Ask for status again after each action; the agent cites the current receipt,
+    resolution, and next follow-up instead of repeating the pre-action state.
+
+## Guided hero claim (encounter-a)
+
+Encounter A's `/encounters?focus=episode-encounter-a` view runs a single
+adaptive stepper (`visit_ready` → `appeal_submitted`) instead of one static
+proposal. Every step is gated server-side (`src/domain/action-policy.ts`,
+`src/server/tool-jobs.ts`) and only advances after a durable receipt:
+
+| Stage | What happens | Backing |
+|---|---|---|
+| Eligibility | Live Stedi 270/271 test-mode check (Jane Doe synthetic record) | `POST /api/episodes/:id/eligibility`, durable summary only (never raw X12) |
+| Submit | Simulated clearinghouse submission (not a live 837P) | Proposal + Allow once |
+| Follow-through | Deterministic "accepted, no remittance" transition | `POST /api/episodes/:id/hero` (no connector) |
+| Portal investigation | Northstar portal browser automation job | `POST /api/tool-jobs` (`investigate_claim`) |
+| Voice evidence | Deepgram voice session over scripted synthetic payer audio | `POST /api/tool-jobs` (`voice_session`) |
+| Reprocessing | Approval-gated reprocessing request | Proposal + Allow once |
+| Denial recheck | Portal recheck confirms the denial was upheld | `POST /api/tool-jobs` (`recheck_reprocessing`) |
+| Appeal | Formal appeal submission with Northstar confirmation | Proposal + Allow once (starts a `submit_appeal` tool job internally) |
+
+Tool jobs (portal investigation, voice session, denial recheck) run against
+`services/automation-sidecar` when `AUTOMATION_SIDECAR_URL` /
+`AUTOMATION_SIDECAR_API_KEY` are set, and against an in-process mock sidecar
+otherwise -- local dev, CI, and `npm run verify` never require the sidecar.
+The sidecar itself owns the live Deepgram key; **there is no PSTN dialing
+anywhere in this demo**, only scripted synthetic payer audio.
 
 ## Verification
 
@@ -99,8 +129,12 @@ Optional connected adapters (credentials required, not part of default verify):
 ```bash
 npm run seed:medplum
 npm run test:medplum
+npm run test:medplum:live
+npm run test:stedi:live
 npm run seed:moss
 npm run test:moss:live
+npm run test:automation      # services/automation-sidecar's own contract tests
+npm run test:deepgram:live   # honestly reports missing sidecar config; never fakes "live"
 ```
 
 ## Synthetic limitations
@@ -122,6 +156,20 @@ npm run test:moss:live
   hosting metadata and drizzle migrations. The Worker injects `env.DB` and selects
   `D1SessionRepository` at runtime. Local verify still uses Next.js plus memory/SQLite
   test adapters — schema alone is not a substitute for the Worker build.
+- Guided hero claim (encounter-a) tool jobs (portal investigation, voice
+  session, denial recheck) run against `services/automation-sidecar` when
+  configured, and against an in-process mock sidecar otherwise. Deepgram is
+  called only by that sidecar, over scripted synthetic payer audio -- there
+  is no PSTN dialing anywhere in this demo, live or mock.
+- Claim submission (including the guided hero claim) always uses the
+  simulated Stedi clearinghouse rail, never a live 837P. Only the encounter-a
+  eligibility check (270/271) calls the live Stedi test-mode API when
+  configured; it persists a normalized summary (test mode, active coverage,
+  benefit count) and never the raw X12.
+- Medplum connected mode is optional everywhere, including the FHIR
+  write-through plane for the guided hero claim: default verify and local
+  dev never require `MEDPLUM_*`, and the workbench shows an explicit
+  connected/unavailable badge instead of silently falling back.
 
 ## Product docs
 

@@ -263,6 +263,59 @@ Irreversible external action을 agent가 자율 실행하지 않는다. Read, co
 - Healthcare `local` + agent `bff` 공개 데모에서는 ActionService가 독립 synthetic executor로 mutation receipt를 증명한다. BFF `run_completed`만으로는 domain success receipt를 만들지 않는다.
 - BFF unavailable일 때 conversational fallback을 숨기지 않는다. Demo synthetic agent mode에서만 deterministic chat를 사용한다.
 
+## Guided hero claim (encounter-a)과 tool job
+
+Encounter-a는 정적 proposal 하나가 아니라 `visit_ready` → `appeal_submitted`까지
+이어지는 단일 hero stage machine(`src/domain/hero.ts`)을 사용한다. 각 단계는
+서버 소유 정책(`src/domain/action-policy.ts`, `src/server/tool-jobs.ts`)이
+게이트하며, `heroStage`는 UI hint일 뿐이고 실제 진행은 항상 durable connector
+receipt(`portalInvestigationReceiptId`, `voiceSessionReceiptId`,
+`reprocessingReceiptId`, `denialUpheldReceiptId`, `appealReceiptId`)로
+`deriveHeroStage`가 재계산한다.
+
+### Tool job
+
+Portal investigation, voice session, denial recheck는 approval이 필요 없는
+고정 action tool job(`ToolJobService`)이다. Idempotency key, ordered progress,
+revision fencing을 가지며, connector receipt가 episode에 적용된 이후에만
+`heroStage`가 전진한다. `POST /api/demo/reset`은 `repo.reset()` 이전에 active
+tool job을 먼저 취소하며, 취소가 실패하면 409를 반환하고 reset을 진행하지
+않는다.
+
+Formal appeal(`submit_appeal`)만 예외로, approval-gated action이면서 내부적으로
+동일한 tool job 경로(`runApprovalGatedToolJob`)를 실행한다. 이 경로는 receipt가
+아직 없는 재시도(연결 오류, pending job)를 매번 새로 제출하지 않고 같은 remote
+job을 poll/reconcile하며, 확인 번호(confirmation)가 도착한 시점에만 approval을
+소비하고 Provenance/AuditEvent를 만든다.
+
+### 자동화 sidecar
+
+Portal 자동화와 Deepgram voice session은 이 Next.js 앱이 아니라
+`services/automation-sidecar`가 소유한다. `AUTOMATION_SIDECAR_URL` /
+`AUTOMATION_SIDECAR_API_KEY`가 설정되지 않으면 in-process mock sidecar로
+fallback하며, 로컬 개발과 `npm run verify`는 이 sidecar를 요구하지 않는다.
+Deepgram API key는 이 앱의 환경이 아니라 sidecar 자체 환경에만 존재하고, 실제
+전화망(PSTN) 연결은 이 데모 어디에도 없다 — voice session은 항상 scripted
+synthetic payer audio 위에서 동작한다.
+
+### Eligibility와 claim submission의 구분
+
+- Eligibility(270/271)만 `stediMode=test` + `STEDI_API_KEY`가 있을 때 실제 Stedi
+  test-mode API를 호출한다. 결과는 정규화된 요약(checkId, activeCoverage,
+  activeBenefitCount, planNames, hasRaw271 flag)만 episode에 영구 저장하며,
+  raw X12는 절대 저장하지 않는다. Rate limit과 idempotency(이미
+  `eligibilityReceiptId`가 있으면 재호출하지 않음)로 보호된다.
+- Claim 제출(submit_claim, 그리고 hero flow 전체)은 항상 simulated Stedi
+  clearinghouse rail이다 — 실제 837P는 이 데모 어디에도 없다.
+
+### Medplum optional
+
+FHIR write-through plane(`src/server/fhir-plane.ts`)은 session ledger와 완전히
+분리된 additive layer다. `HEALTHCARE_MODE=medplum`이 아니거나 `MEDPLUM_*`가
+없으면 `disabled` badge를 표시하고, 설정되었지만 연결에 실패하면 `unavailable`
+badge를 표시한다 — 어느 경우에도 session 상태나 guided hero claim 진행에는
+영향을 주지 않으며, 조용한 fallback은 없다.
+
 ## Idempotency와 승인
 
 - Claim submission, corrected claim, reprocessing request는 각각 안정적인 idempotency key를 가진다.
