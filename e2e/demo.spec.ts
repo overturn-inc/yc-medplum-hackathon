@@ -269,12 +269,14 @@ test.describe("Overturn PMS demo journeys", () => {
     await expect(page.getByTestId("hero-flow")).toContainText("Accepted overdue");
 
     // portal_denied: Northstar portal investigation tool job (mock sidecar).
+    // The mock sidecar completes synchronously, and the CTA remounts as soon
+    // as the hero stage advances (`key={heroView.stage}` in HeroFlow.tsx), so
+    // assert the stage transition and durable evidence rather than the
+    // in-flight receipt render, which can be replaced before a poll observes it.
     await expect(page.getByTestId("tool-job-panel-investigate_claim")).toBeVisible();
     await page.getByTestId("tool-job-start").click();
-    await expect(page.getByTestId("tool-job-receipt")).toContainText(/authorization/i, {
-      timeout: 10_000,
-    });
-    await expect(page.getByTestId("hero-flow")).toContainText("Portal denial");
+    await expect(page.getByTestId("hero-flow")).toContainText("Portal denial", { timeout: 10_000 });
+    await expect(page.getByTestId("evidence-drawer")).toContainText(/authorization/i);
 
     // voice_evidence_collected: Deepgram voice session tool job (mock sidecar).
     await expect(page.getByTestId("tool-job-panel-voice_session")).toBeVisible();
@@ -297,10 +299,7 @@ test.describe("Overturn PMS demo journeys", () => {
     // denial_upheld: recheck tool job confirms the denial was upheld.
     await expect(page.getByTestId("tool-job-panel-recheck_reprocessing")).toBeVisible();
     await page.getByTestId("tool-job-start").click();
-    await expect(page.getByTestId("tool-job-receipt")).toContainText(/upheld/i, {
-      timeout: 10_000,
-    });
-    await expect(page.getByTestId("hero-flow")).toContainText("Denial upheld");
+    await expect(page.getByTestId("hero-flow")).toContainText("Denial upheld", { timeout: 10_000 });
 
     // appeal_ready: prepare the appeal packet, then Allow once to submit it.
     await page.getByTestId("hero-prepare-appeal").click();
