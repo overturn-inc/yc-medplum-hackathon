@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 interface EligibilityResult {
@@ -17,6 +18,7 @@ export function StediEligibilityCheck({
   episodeId: string;
   configured: boolean;
 }) {
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<EligibilityResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +37,10 @@ export function StediEligibilityCheck({
         return;
       }
       setResult(data);
+      // The check persists durable eligibility evidence and can advance the
+      // guided hero stage server-side; refresh so parents (e.g. HeroFlow)
+      // pick up the new stage and re-signed proposal without a manual reload.
+      router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Stedi eligibility check failed.");
     } finally {
