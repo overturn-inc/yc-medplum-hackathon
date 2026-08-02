@@ -29,7 +29,9 @@
     "test:stedi:live": "node --env-file=.env.local --import tsx scripts/test-stedi-live.ts",
     "test:medplum:live": "node --env-file=.env.local --import tsx scripts/test-medplum-live.ts",
     "seed:moss": "MOSS_DISABLE_TELEMETRY=1 node --env-file=.env.local --import tsx scripts/seed-moss.ts",
-    "test:moss:live": "MOSS_DISABLE_TELEMETRY=1 node --env-file=.env.local --import tsx scripts/test-moss-live.ts"
+    "test:moss:live": "MOSS_DISABLE_TELEMETRY=1 node --env-file=.env.local --import tsx scripts/test-moss-live.ts",
+    "test:automation": "cd services/automation-sidecar && npm test",
+    "test:deepgram:live": "node --env-file=.env.local --import tsx scripts/test-deepgram-live.ts"
   },
   "dependencies": {
     "@medplum/core": "5.1.27",
