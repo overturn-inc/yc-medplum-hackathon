@@ -7,7 +7,7 @@ async function resetDemo(page: import("@playwright/test").Page) {
   await page.reload();
 }
 
-test.describe("Harborview PMS demo journeys", () => {
+test.describe("Overturn PMS demo journeys", () => {
   test.beforeEach(async ({ page }) => {
     await resetDemo(page);
   });
@@ -227,6 +227,95 @@ test.describe("Harborview PMS demo journeys", () => {
       /clearinghouse|not a payer denial/i,
       { timeout: 10_000 },
     );
+  });
+
+  test("guided hero claim: visit through appeal submission via mock automation sidecar (Stedi off skips eligibility)", async ({
+    page,
+  }) => {
+    await page.goto("/encounters?focus=episode-encounter-a");
+    await expect(page.getByTestId("hero-flow")).toBeVisible();
+    await expect(page.getByTestId("hero-flow")).toContainText("Step 1 of 10");
+
+    // Whether Stedi is configured varies by environment. When it is off, the
+    // eligibility button is disabled and this walk-through skips straight to
+    // submitting the claim, matching how a demo operator would skip a
+    // not-yet-configured live rail. When it is on, actually run the live
+    // synthetic 270/271 check (test-mode credentials only, Jane Doe test
+    // record, no real PHI) since that is this component's real behavior.
+    await expect(page.getByTestId("stedi-eligibility-check")).toBeVisible();
+    const eligibilityButton = page.getByTestId("stedi-eligibility-run");
+    if (await eligibilityButton.isEnabled()) {
+      await eligibilityButton.click();
+      await expect(page.getByTestId("stedi-eligibility-check")).toContainText(/coverage/i, {
+        timeout: 20_000,
+      });
+      await expect(page.getByTestId("hero-flow")).toContainText("Coverage confirmed");
+      // The eligibility check advanced the episode revision; the guided flow
+      // re-signs the existing submit_claim proposal so Allow once below is
+      // not rejected as stale.
+      await expect(page.getByTestId("hero-await-approval")).toBeVisible();
+    } else {
+      await expect(eligibilityButton).toBeDisabled();
+    }
+
+    // claim_submitted: Allow once the (possibly re-signed) submit_claim proposal.
+    await page.getByTestId("allow-once").click();
+    await expect(page.getByTestId("approval-message")).toContainText("Submitted");
+    await expect(page.getByTestId("hero-flow")).toContainText("Claim submitted");
+
+    // accepted_overdue: deterministic, connector-free follow-through.
+    await page.getByTestId("hero-advance-follow-through").click();
+    await expect(page.getByTestId("hero-message")).toContainText("Advanced to accepted overdue");
+    await expect(page.getByTestId("hero-flow")).toContainText("Accepted overdue");
+
+    // portal_denied: Northstar portal investigation tool job (mock sidecar).
+    await expect(page.getByTestId("tool-job-panel-investigate_claim")).toBeVisible();
+    await page.getByTestId("tool-job-start").click();
+    await expect(page.getByTestId("tool-job-receipt")).toContainText(/authorization/i, {
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId("hero-flow")).toContainText("Portal denial");
+
+    // voice_evidence_collected: Deepgram voice session tool job (mock sidecar).
+    await expect(page.getByTestId("tool-job-panel-voice_session")).toBeVisible();
+    await page.getByTestId("tool-job-start").click();
+    await expect(page.getByTestId("hero-flow")).toContainText("Voice evidence", {
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId("evidence-drawer")).toContainText(
+      "Deepgram voice session evidence",
+    );
+
+    // reprocessing: approval-gated proposal, never a direct tool job.
+    await page.getByTestId("hero-propose-action").click();
+    await expect(page.getByTestId("hero-message")).toContainText("Proposal created");
+    await expect(page.getByTestId("hero-await-approval")).toBeVisible();
+    await page.getByTestId("allow-once").click();
+    await expect(page.getByTestId("approval-message")).toContainText("Reprocessing");
+    await expect(page.getByTestId("hero-flow")).toContainText("Reprocessing requested");
+
+    // denial_upheld: recheck tool job confirms the denial was upheld.
+    await expect(page.getByTestId("tool-job-panel-recheck_reprocessing")).toBeVisible();
+    await page.getByTestId("tool-job-start").click();
+    await expect(page.getByTestId("tool-job-receipt")).toContainText(/upheld/i, {
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId("hero-flow")).toContainText("Denial upheld");
+
+    // appeal_ready: prepare the appeal packet, then Allow once to submit it.
+    await page.getByTestId("hero-prepare-appeal").click();
+    await expect(page.getByTestId("hero-message")).toContainText("Appeal packet prepared");
+    await expect(page.getByTestId("hero-await-approval")).toBeVisible();
+    await page.getByTestId("allow-once").click();
+    await expect(page.getByTestId("approval-message")).toContainText(/Appeal submitted/i);
+    await expect(page.getByTestId("approval-message")).toContainText(/Confirmation NS-APL-/);
+
+    // appeal_submitted: guided flow is complete, no further action.
+    await expect(page.getByTestId("hero-flow")).toContainText("Step 10 of 10");
+    await expect(page.getByTestId("hero-flow")).toContainText("Appeal confirmation");
+
+    await page.goto("/dashboard");
+    await expect(page.getByTestId("kpi-ready")).toContainText("1");
   });
 
   test("refresh persistence and reset restore seed", async ({ page }) => {
