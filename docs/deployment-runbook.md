@@ -84,6 +84,22 @@ There is no silent fallback to synthetic chat classification. When healthcare
 remains `local`, approved demo mutations still use the independent synthetic
 domain executor; BFF `run_completed` alone is never a domain success receipt.
 
+### Automation sidecar (guided hero claim tool jobs)
+
+The guided hero claim's Northstar portal investigation, Deepgram voice
+session, and denial-recheck tool jobs run against `services/automation-sidecar`
+when `AUTOMATION_SIDECAR_URL` and `AUTOMATION_SIDECAR_API_KEY` are set;
+otherwise `ToolJobService` falls back to an in-process mock sidecar, so local
+dev, CI, and `npm run verify` never require this service. Its own
+`Dockerfile` and `deploy/deploy-host.sh` mirror the Moss sidecar's pattern:
+root-managed Secrets Manager file mount for the sidecar API key and Deepgram
+key, a non-root runtime image, and a `deploy/Caddyfile` route on the existing
+BFF host. Deepgram is only ever called by this sidecar -- never from the
+Next.js app -- and only over scripted synthetic payer audio; there is no
+PSTN dialing anywhere in this demo, live or mock. Run `npm run test:automation`
+to exercise the sidecar's own contract tests, and `npm run test:deepgram:live`
+to execute a synthetic voice job and require live Deepgram STT and TTS evidence.
+
 ## Post-deploy live smoke
 
 ```bash
