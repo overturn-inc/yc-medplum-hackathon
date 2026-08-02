@@ -43,15 +43,28 @@ evidence-backed workspace with approval-gated actions.
   adapter reads claim-scoped resources and fails closed when credentials or
   evidence are missing. The public demo uses synthetic FHIR fixtures because no
   live Medplum project credentials are configured.
-- **Stedi:** The local demo executes a real Stedi 270/271 eligibility API call
+- **Stedi:** The deployed demo executes a real Stedi 270/271 eligibility API call
   with Stedi's approved synthetic Jane Doe record, surfaces the live test-mode
-  result in claim preflight, and keeps the API key server-only. The 837P, 277CA,
-  and 835 claim rail is implemented at the client boundary but cannot execute
-  with the current Sandbox account, which authorizes eligibility only.
-- **Deepgram:** A real Twilio phone call through the Deepgram Voice Agent API has
-  been validated locally with synthetic Claim C context. It uses Deepgram Flux
-  speech recognition and Aura-2 speech synthesis, but is not yet connected to
-  the public product workflow or Medplum audit trail.
+  result in claim preflight, and keeps the API key server-only. For the
+  guided hero claim, only that normalized result (test mode, active coverage,
+  benefit count, never the raw X12) is persisted as durable episode evidence,
+  is idempotent (never re-called once on file), and is rate-limited. The
+  837P, 277CA, and 835 claim rail -- including the hero claim's submission --
+  is represented as a simulated clearinghouse rail; it cannot execute with
+  the current Sandbox account, which authorizes eligibility only. Appeal is
+  demonstrated separately against the fictional Northstar payer portal.
+- **Deepgram:** The guided hero claim (Encounter A) now calls Deepgram from a
+  dedicated automation sidecar as one step of its denial-follow-up flow: a
+  fixed-action voice-session tool job produces a transcript, structured facts
+  (denial reason code, next step), and a durable connector receipt that
+  advances the claim's hero stage. It runs over scripted synthetic payer
+  audio -- there is no PSTN/phone dialing anywhere in this demo, live or
+  mock. Live Deepgram requires the sidecar's own `DEEPGRAM_API_KEY`; without
+  it, an in-process mock sidecar returns the same shaped receipt so the
+  guided flow, tests, and CI never require a live key. An earlier real
+  Twilio phone call through the Deepgram Voice Agent API (Flux speech
+  recognition, Aura-2 synthesis) was validated locally with synthetic Claim C
+  context; that PSTN path is not part of the product workflow above.
 - **Moss.dev:** The product creates a dedicated 39-document synthetic claims
   index and performs real claim-scoped semantic retrieval inside the agent
   station. Claim C visibly shows the retrieved denial, authorization, 277, and
@@ -78,11 +91,15 @@ server-owned so a model completion cannot be mistaken for a payer write.
 
 1. Synthetic practice dashboard with seven encounter/claim episodes and always-on
    synthetic / no-live-payer-write badges.
-2. Encounter preflight with a live Stedi 270/271 test eligibility result for the
-   approved synthetic Jane Doe record.
+2. Encounter A's guided hero claim: a live Stedi 270/271 eligibility check,
+   simulated submission, deterministic follow-through, a Northstar portal
+   investigation and Deepgram voice-session tool job (both against the
+   automation sidecar), approval-gated reprocessing, a denial recheck, and a
+   formal appeal with a Northstar confirmation number -- every step backed by
+   a durable connector receipt or approval, never a silent state jump.
 3. Conversational agent station per claim: status, reason, evidence, next action,
    and proposal-only action requests.
-4. Encounter A / Claim A approval-gated submission ending at clearinghouse
+4. Claim A approval-gated submission ending at clearinghouse
    received with adjudication not found.
 5. Claim B overdue payer status refresh (read-only; never marks paid).
 6. Claim C PMS-versus-payer authorization discrepancy with Deny, Re-propose, and
@@ -103,8 +120,15 @@ server-owned so a model completion cannot be mistaken for a payer write.
 - Domain connector receipts alone prove mutation success.
 - No claim of a live Stedi 837P/277CA/835 transaction, real Medplum credentials,
   PMF, or live payer writes. Moss retrieval is live in the public product against
-  a synthetic-only index through the authenticated AWS sidecar. Deepgram is a locally validated
-  voice proof of concept until it is connected to the public workflow.
+  a synthetic-only index through the authenticated AWS sidecar.
+- The guided hero claim's Deepgram voice session and Northstar portal
+  automation run against a dedicated sidecar that falls back to an
+  in-process mock when no live credentials are configured, so the demo,
+  tests, and CI never silently require them. No PSTN/phone dialing exists
+  anywhere in this demo -- voice sessions run over scripted synthetic payer
+  audio, live or mock. Medplum FHIR write-through for the hero claim's
+  Provenance/AuditEvent is additive and optional: session state and hero
+  stage progression never depend on it succeeding.
 
 ## Verification
 
