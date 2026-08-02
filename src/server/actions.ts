@@ -1536,7 +1536,7 @@ export class ActionService {
         hasRaw271: result.hasRaw271,
       };
 
-      const next: ClaimEpisode = {
+      let next: ClaimEpisode = {
         ...episode,
         coverageActive: result.activeCoverage,
         eligibilityReceiptId: receiptId,
@@ -1572,6 +1572,15 @@ export class ActionService {
           ),
         ],
       };
+
+      // Eligibility evidence advances the episode revision. Re-sign the
+      // existing submit proposal against that exact revision so Allow once
+      // does not reject the freshly verified eligibility check as stale
+      // (mirrors the same re-sign done in refreshPayerStatus above).
+      if (next.proposal?.actionType === "submit_claim") {
+        const proposal = buildProposalForAction("submit_claim", next);
+        next = { ...next, proposal, agentAction: proposal.title };
+      }
 
       pushObservation(next, {
         id: `obs-${episode.id}-eligibility-${at}`,
