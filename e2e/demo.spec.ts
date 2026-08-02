@@ -246,14 +246,21 @@ test.describe("Overturn PMS demo journeys", () => {
     const eligibilityButton = page.getByTestId("stedi-eligibility-run");
     if (await eligibilityButton.isEnabled()) {
       await eligibilityButton.click();
-      await expect(page.getByTestId("stedi-eligibility-check")).toContainText(/coverage/i, {
+      // The check advances the hero stage and the CTA remounts as soon as it
+      // does (`key={heroView.stage}` in HeroFlow.tsx), replacing this widget
+      // with the submit_claim callout -- assert the stage transition rather
+      // than the in-flight "Active coverage returned" render, which can be
+      // replaced before a poll observes it.
+      await expect(page.getByTestId("hero-flow")).toContainText("Coverage confirmed", {
         timeout: 20_000,
       });
-      await expect(page.getByTestId("hero-flow")).toContainText("Coverage confirmed");
       // The eligibility check advanced the episode revision; the guided flow
       // re-signs the existing submit_claim proposal so Allow once below is
       // not rejected as stale.
       await expect(page.getByTestId("hero-await-approval")).toBeVisible();
+      await expect(page.getByTestId("evidence-drawer")).toContainText(
+        "Stedi 270/271 eligibility check",
+      );
     } else {
       await expect(eligibilityButton).toBeDisabled();
     }
