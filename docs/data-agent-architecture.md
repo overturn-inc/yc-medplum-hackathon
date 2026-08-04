@@ -10,6 +10,7 @@
 | Breakfast Factory | Agent thread, run, event stream, model execution | 의료 데이터 source of truth, payer mutation proof |
 | Medplum | FHIR R4 resource, Task workflow, evidence reference, Provenance, access control | Payer portal 자동화 |
 | Stedi | 837P transport, 277CA, 835 ERA transport (connected path limitations explicit) | PMS, denial resolution |
+| Moss | Claim-scoped semantic evidence retrieval and low-latency voice guidance | Healthcare source of truth, action authorization |
 
 ## Session isolation
 
@@ -26,6 +27,18 @@ Allow once / Deny remains the sole healthcare write path with exact scope,
 stale-revision conflict, and idempotent retries. Claim B is the intentional
 exception for a read-only payer status refresh: chat may run that query directly,
 append the returned observation and follow-up, and never mark the claim paid.
+
+When Moss is configured, every turn also queries a synthetic-only operational
+evidence index. The server adds the current claim context, rejects every result
+whose metadata does not match the active episode, and uses the surviving order
+only to rank citations already present in the durable episode. Retrieved text
+cannot create a proposal, approve an action, or mutate healthcare state.
+
+The public Worker calls a bearer-authenticated AWS Node sidecar because the
+official Moss SDK uses native binaries. The sidecar loads the index and embedding
+model into a persistent local cache, applies the exact episode metadata filter,
+and returns only the normalized retrieval contract. Moss project credentials
+never enter the Worker, browser, logs, or repository.
 
 ## FHIR graph
 

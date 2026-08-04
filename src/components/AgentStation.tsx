@@ -10,6 +10,7 @@ import {
 import type { EpisodeView } from "@/domain/projector";
 import type { PreflightCheck } from "@/domain/preflight";
 import type { DomainEvent } from "@/domain/types";
+import type { RetrievalResult } from "@/adapters/retrieval/types";
 
 const SUGGESTED_QUESTIONS: Partial<Record<EpisodeView["fixtureKey"], string[]>> = {
   "encounter-a": ["Is this ready to submit?", "What evidence do you have?", "Submit the claim"],
@@ -49,11 +50,13 @@ export function AgentStation({
   preflight,
   events = [],
   agentMode = "synthetic",
+  mossConfigured = false,
 }: {
   episode: EpisodeView;
   preflight?: PreflightCheck[] | null;
   events?: DomainEvent[];
   agentMode?: string;
+  mossConfigured?: boolean;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -62,6 +65,8 @@ export function AgentStation({
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [refreshPending, setRefreshPending] = useState(false);
+  const [retrieval, setRetrieval] = useState<RetrievalResult | null>(null);
+  const [retrievalError, setRetrievalError] = useState<string | null>(null);
 
   const conversation = episode.conversation ?? [];
   const suggested = SUGGESTED_QUESTIONS[episode.fixtureKey] ?? [];
@@ -76,6 +81,7 @@ export function AgentStation({
     const text = message.trim();
     if (!text || pending) return;
     setError(null);
+    setRetrievalError(null);
     setDraft("");
     setPending(true);
     try {
@@ -93,6 +99,8 @@ export function AgentStation({
         setError(data.error ?? "Chat failed");
         return;
       }
+      setRetrieval(data.retrieval ?? null);
+      setRetrievalError(data.retrievalError ?? null);
       router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Chat failed");
@@ -141,7 +149,58 @@ export function AgentStation({
             {agentMode === "bff" ? "BFF configured" : "Synthetic"}
           </span>
         </div>
-        <p className="agent-boundary">Grounded answers only · no silent local fallback</p>
+        <p className="agent-boundary">
+          Grounded answers only · no silent local fallback
+          {mossConfigured ? " · Moss retrieval live" : ""}
+        </p>
+
+        {mossConfigured && (
+          <div className="moss-retrieval" data-testid="moss-retrieval">
+            <div className="moss-retrieval-header">
+              <span>
+                <strong>Moss evidence retrieval</strong>
+                <small>
+                  Synthetic claim scope
+                  {retrieval
+                    ? ` · ${
+                        retrieval.execution === "local-in-memory"
+                          ? "Local in-memory"
+                          : retrieval.execution === "aws-local-sidecar"
+                            ? "AWS local sidecar"
+                            : "Moss cloud"
+                      }`
+                    : ""}
+                </small>
+              </span>
+              {retrieval ? (
+                <span className="badge success">{retrieval.latencyMs.toFixed(1)} ms</span>
+              ) : (
+                <span className="badge">Ready</span>
+              )}
+            </div>
+            {retrievalError ? (
+              <p className="error-callout" role="status">{retrievalError}</p>
+            ) : retrieval ? (
+              retrieval.documents.length > 0 ? (
+                <ul className="moss-result-list">
+                  {retrieval.documents.map((document) => (
+                    <li key={document.id}>
+                      <span>
+                        <strong>{document.title}</strong>
+                        <code>{document.reference}</code>
+                      </span>
+                      <small>{document.documentType} · {document.score.toFixed(3)}</small>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted">No documents passed the episode-scope guard.</p>
+              )
+            ) : (
+              <p className="muted">Ask the agent to retrieve claim evidence from the live Moss index.</p>
+            )}
+          </div>
+        )}
 
         <div className="chat-thread" data-testid="agent-chat-thread">
           {conversation.length === 0 ? (

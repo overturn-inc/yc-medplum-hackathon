@@ -27,6 +27,8 @@ export default async function ClaimDetailPage({
         preflight={view.preflight}
         events={view.events}
         agentMode={view.config.agentMode}
+        stediConfigured={view.config.stediConfigured}
+        mossConfigured={view.config.mossConfigured}
       />
     </main>
   );

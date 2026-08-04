@@ -1,15 +1,18 @@
 # Validation evidence
 
-Validated: 2026-08-01 12:03 PDT (public release)
+Validated: 2026-08-01 14:36 PDT (hardened AWS Moss sidecar and public release)
 
-Final verdict: **PASS** after the final Claude Design implementation, local aggregate
-gate, successful Sites deployment, public visual inspection, three earlier public
-mutation E2E runs, and a final full live run against release 20.
+Final verdict: **PASS** after the final Claude Design implementation, Moss live
+SDK and Linux container validation, AWS sidecar deployment, local aggregate
+gate, successful Sites deployment, and a full public mutation E2E that requires
+live Moss evidence retrieval.
 
 Public release: https://overturn-agentic-claims.argentum1450.chatgpt.site
 
-Public Sites release: version 20 from runtime commit
-`21a949acd983084b107fe29a2e373ac6de3e3215`.
+Current release: Sites version 23 from runtime commit
+`29b5a7445ab598dd546201125cb5a50dfdd91353`. Public runtime uses
+`MOSS_MODE=live` and `MOSS_EXECUTION=sidecar`; the Worker calls the authenticated
+AWS Node sidecar and never receives the Moss project credentials.
 
 ## Aggregate gate
 
@@ -35,7 +38,7 @@ npm run verify
 | ESLint | Passed |
 | FHIR validation | Passed (3) |
 | Unit tests | Passed (36) |
-| Contract tests | Passed (38) |
+| Contract tests | Passed (50) |
 | Replay tests | Passed (3) |
 | Database / session / D1 tests | Passed (19) |
 | Next.js production build (`build:next`) | Passed |
@@ -44,7 +47,7 @@ npm run verify
 | package-site.sh archive | Passed |
 | Secret canary | Passed |
 | Public anonymous HTTP | Passed (200) |
-| Public mutation E2E | Passed a final full run with required `Agent: bff` on version 20; three earlier full runs also passed |
+| Public mutation E2E | Passed on version 23 with required `Agent: bff`, live Claim C Moss evidence, and `AWS local sidecar` UI proof |
 | Public browser inspection | Passed: final dashboard rendered with all mode badges, KPI, queues, funnel, flags, and safety boundary |
 | Pre-hydration interaction safety | Passed: controls remain non-interactive until React handlers are attached |
 | Short viewport sidebar | Passed at 1280x500: session footer remained at y=455 before and after page scroll |
@@ -84,10 +87,45 @@ npm run verify
 - Sites deployability is evidenced by `build:sites` + `package-site.sh`, not by schema files alone.
 - Public BFF is live through the AWS acceptance environment and Bedrock Sonnet;
   failures remain visible and there is no silent conversational fallback.
-- No claim of live Stedi, live Medplum credentials, or live payer writes.
+- A post-release local Stedi integration passed a real test-mode 270/271 API
+  request and UI journey using Stedi's approved synthetic Jane Doe record. The
+  Stedi portal recorded the check as Active, and the response contained five
+  active benefits plus the raw 271 X12 payload.
+- The current Stedi account is Sandbox. A direct test call to the professional
+  claims endpoint returned HTTP 403 `access_denied`; the portal likewise says
+  claims are unavailable until upgrade. No 837P, 277CA, 835, production payer,
+  or real PHI claim is made.
+- No claim of live Stedi claim submission, live Medplum credentials, or live payer writes.
+- A dedicated Moss index named `overturn-claims-demo-v1` was created with 39
+  synthetic-only documents. The official SDK loaded that live index and returned
+  only Claim C documents through a metadata filter. Cold load was 1,484ms and
+  warm local semantic search was 7.8ms in the standalone proof.
+- A production Next server and manual browser journey then returned four Moss
+  documents for “What evidence supports reprocessing?”, ranked the assistant's
+  episode citations from those matches, and visibly rendered the sources,
+  scores, and 13.9ms warm retrieval latency. No proposal or write was created.
+- Moss credentials remain server-only in the ignored local environment. The
+  indexed corpus omits patient names and member IDs, and contract tests reject
+  cross-episode documents after retrieval.
+- Moss's hosted cloud query endpoint returned HTTP 503, so the public Worker now
+  calls a dedicated Node sidecar on the existing BFF AWS acceptance host. The
+  sidecar uses the official SDK local path, keeps Moss credentials in AWS Secrets
+  Manager, binds no host port, runs read-only apart from its model/index cache,
+  and enforces a separate bearer credential plus episode metadata filter.
+- The external sidecar route rejected an unauthenticated query with HTTP 401 and
+  returned three Claim C evidence documents for an authenticated query in 9.1ms,
+  with 8.9ms spent in Moss search. The public Worker stores only the sidecar key.
+- The initial Debian runtime image scan exposed base-package findings, so the
+  deployed v4 image was rebuilt as a non-root multi-stage image with a Chainguard
+  Node runtime. ECR basic scanning completed with no Critical, High, Medium, or
+  Low findings. A post-replacement public app smoke returned four Claim C Moss
+  documents through `aws-local-sidecar`, no retrieval error, and no proposal.
+- The final public runtime config reported healthcare `local`, agent `bff`, Moss
+  `live`, Moss configured `true`, execution `sidecar`, and seven episodes.
 - `LIVE_BASE_URL=https://overturn-agentic-claims.argentum1450.chatgpt.site
-  LIVE_EXPECT_AGENT_MODE=bff npm run test:e2e:live` passed the final release-20
-  run after three earlier full runs. The runs covered Encounter A submission, Claim B refresh, Claim C deny,
+  LIVE_EXPECT_AGENT_MODE=bff npm run test:e2e:live` passed release 23. The run
+  first required Claim C to display live authorization evidence and the `AWS
+  local sidecar` execution label, then covered Encounter A submission, Claim B refresh, Claim C deny,
   re-propose and allow, Claim D correction, Claim E documentation, Claim F's
   unsafe-action refusal and absence of a proposal, dashboard persistence, two
   browser sessions, reset, and current-state answers after actions.
@@ -109,3 +147,6 @@ npm run verify
 - Claim B uses a frozen demo clock, so repeated refreshes can reuse logical labels.
 - Public sessions and chat history are intentionally unbounded for this short-lived
   synthetic hackathon demo.
+- A future BFF host redeploy replaces its generated Caddyfile; the Moss sidecar
+  deploy script must be rerun afterward until the route is folded into the BFF
+  infrastructure template.

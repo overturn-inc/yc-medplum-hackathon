@@ -5,6 +5,7 @@ import path from "node:path";
 const ROOT = process.cwd();
 const SELF = "scripts/public-repo-audit.ts";
 const CONTENT_SCAN_EXCLUSIONS = new Set([SELF, "scripts/secret-scan.ts"]);
+const CONTAINER_LINUX_PATH_PREFIXES = ["services/moss-sidecar/"];
 const tracked = execFileSync("git", ["ls-files", "-z"], {
   cwd: ROOT,
   encoding: "utf8",
@@ -71,6 +72,12 @@ for (const file of tracked) {
     if (pattern.test(text)) failures.push(`${file}: ${label}`);
   }
   for (const [label, pattern] of workstationPatterns) {
+    if (
+      label === "Linux workstation path" &&
+      CONTAINER_LINUX_PATH_PREFIXES.some((prefix) => file.startsWith(prefix))
+    ) {
+      continue;
+    }
     if (pattern.test(text)) failures.push(`${file}: ${label}`);
   }
 }

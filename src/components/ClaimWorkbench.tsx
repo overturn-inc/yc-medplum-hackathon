@@ -1,4 +1,5 @@
 import { AgentStation } from "@/components/AgentStation";
+import { StediEligibilityCheck } from "@/components/StediEligibilityCheck";
 import type { EpisodeView } from "@/domain/projector";
 import type { PreflightCheck } from "@/domain/preflight";
 import type { DomainEvent, SourceObservation } from "@/domain/types";
@@ -60,12 +61,16 @@ export function ClaimWorkbench({
   preflight,
   events = [],
   agentMode = "synthetic",
+  stediConfigured = false,
+  mossConfigured = false,
   compactHeader = false,
 }: {
   episode: EpisodeView;
   preflight?: PreflightCheck[] | null;
   events?: DomainEvent[];
   agentMode?: string;
+  stediConfigured?: boolean;
+  mossConfigured?: boolean;
   compactHeader?: boolean;
 }) {
   const pms = latestObservation(episode, "pms");
@@ -186,6 +191,10 @@ export function ClaimWorkbench({
               <span className="eyebrow">Submission readiness</span>
               <h2>{preflight.every((check) => check.passed) ? "Ready for approval" : "Blocked before submission"}</h2>
               <p className="muted">The agent can prepare the action, but it cannot write externally without Allow once.</p>
+              <StediEligibilityCheck
+                episodeId={episode.id}
+                configured={stediConfigured}
+              />
             </section>
           ) : null}
 
@@ -257,6 +266,7 @@ export function ClaimWorkbench({
           preflight={preflight}
           events={events}
           agentMode={agentMode}
+          mossConfigured={mossConfigured}
         />
       </div>
     </div>

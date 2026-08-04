@@ -45,6 +45,7 @@ export default defineConfig({
         DEMO_INSECURE_COOKIES: "1",
         HEALTHCARE_MODE: "local",
         AGENT_MODE: "synthetic",
+        MOSS_MODE: "off",
       },
     },
     {
@@ -60,6 +61,7 @@ export default defineConfig({
         AGENT_MODE: "bff",
         BFF_BASE_URL: "https://bff.invalid.example",
         BFF_API_KEY: "test-key-not-a-secret",
+        MOSS_MODE: "off",
       },
     },
   ],
